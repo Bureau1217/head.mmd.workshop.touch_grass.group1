@@ -17,9 +17,9 @@
   /* forest news panel */
   --panel-width: 300px;
   --panel-top: 32px;
-  --panel-left: 28px;
-  --title-size: 22px;
+  --panel-left: 28px;  --title-size: 22px;
   --news-size: 11px;
+  --news-lifetime: 9s;  /* how long a news line stays before it is gone; it fades during the last part */
 
   color-scheme: light;
 }
@@ -78,4 +78,20 @@ body {
 
 .news__log li {
   overflow-wrap: anywhere;
+  animation: news-fade var(--news-lifetime) linear forwards;
+}
+
+/* ---- world: the canvas bigger than the screen, drawn by world.js behind everything else ---- */
+.world {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* fully visible for most of its life, then fades out; main.js removes the line when this ends */
+@keyframes news-fade {
+  0%, 80% { opacity: 1; }
+  100% { opacity: 0; }
 }
