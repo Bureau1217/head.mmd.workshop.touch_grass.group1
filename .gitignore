@@ -1,3 +1,9 @@
 .DS_Store
 .idea
 .vscode
+references/
+
+# Node
+node_modules/
+*.log
+.env

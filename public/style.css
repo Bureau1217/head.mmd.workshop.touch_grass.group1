@@ -1,0 +1,81 @@
+/* Font: Arial is built into every computer, so nothing needs loading.
+   For a web font instead, add its Google Fonts @import here and put its name in --font below. */
+
+/* ---- settings: change the look of the whole site here ---- */
+:root {
+  --font: Arial, "Helvetica Neue", Helvetica, sans-serif;
+  --font-size: 12px;
+
+  --paper: #fbfbfa;     /* background */
+  --ink: #0b0b0b;       /* text */
+  --ink-soft: #6a6a66;  /* secondary text */
+
+  /* paper grain drawn by grain.js; set --grain-strength to 0 to turn it off */
+  --grain-color: 30, 30, 30;  /* r, g, b */
+  --grain-strength: 14;       /* 0–255, how visible the speckles are */
+
+  /* forest news panel */
+  --panel-width: 300px;
+  --panel-top: 32px;
+  --panel-left: 28px;
+  --title-size: 22px;
+  --news-size: 11px;
+
+  color-scheme: light;
+}
+
+/* ---- base ---- */
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font);
+  font-size: var(--font-size);
+  line-height: 1.5;
+  color: var(--ink);
+  background-color: var(--paper);
+}
+
+/* ---- forest news: stays in the top-left corner while the canvas moves ---- */
+.news {
+  position: fixed;
+  top: var(--panel-top);
+  left: max(var(--panel-left), env(safe-area-inset-left, 0px));
+  z-index: 10;
+  width: var(--panel-width);
+  max-width: calc(100vw - 2 * var(--panel-left));
+}
+
+.news__title {
+  margin: 0 0 12px;
+  font-size: var(--title-size);
+  font-weight: 500;
+}
+
+.news__me {
+  margin: 0 0 14px;
+  font-size: var(--news-size);
+  font-variant-numeric: tabular-nums;
+}
+
+.news__log {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--news-size);
+  line-height: 1.25;
+}
+
+.news__log li {
+  overflow-wrap: anywhere;
+}
