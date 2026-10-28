@@ -1,6 +1,7 @@
 <template>
   <div>
     <NuxtRouteAnnouncer />
-    <NuxtWelcome />
+    <AppHeader />
+    <AppHelloTouchGrass />
   </div>
 </template>
