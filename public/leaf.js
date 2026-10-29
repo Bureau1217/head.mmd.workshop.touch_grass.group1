@@ -1,8 +1,12 @@
-// Leaf: an ASCII leaf that falls into the left half of the screen when the page opens, then rests
-// at the bottom until someone blows on it. The microphone (mic.js) blows through leaf.blow(x, y); the
-// arrow keys are a backup and win while held. From the first blow on, the camera follows the leaf.
-// Two stages: first, blowing pushes the leaf the way mic.js says; STAGE_TWO_AFTER seconds after
-// the first blow, blowing pushes it towards the centre of the world instead, at the same speeds.
+// Leaf: an ASCII leaf that falls onto the screen when the page opens, then rests at the bottom
+// until someone blows on it. Each visitor's leaf spawns in one of seven zones around the centre
+// of the world, picked at random (ZONES). The microphone (mic.js) blows through leaf.blow(x, y);
+// the arrow keys are a backup and win while held. From the first blow on, the camera follows it.
+// Two stages: first, blowing pushes the leaf in a random main direction that sways from side to
+// side; STAGE_TWO_AFTER seconds after the page opens, blowing pushes it towards the centre of the
+// world instead, at the same speeds.
+// The leaf starts small and grows to full size from the first blow, finishing as stage two begins
+// (or over LATE_GROW seconds if the first blow comes late).
 // The first time the leaf reaches the trunk, the camera moves back to show the trunk and the leaves
 // around it, and stays there. The leaf can still be blown until it leaves the frame; then nobody
 // controls it any more: it falls back in from the top and lands among the other leaves.
@@ -122,7 +126,6 @@
   let sceneFrom = null;       // the camera when it started moving to the trunk
   let landing = null;         // once out of the frame: where it lands among the other leaves
   let joined = false;         // landed: it is now one of the leaves of pile.js
-  let t = 0;
   const phase = Math.random() * 10;
   const wanderPhase = [Math.random() * 10, Math.random() * 10];
   //#endregion
@@ -154,7 +157,7 @@
         y: (mainDir.x * sin + mainDir.y * cos) * strength,
       };
     }
-    // stage two: same strength, but towards the centre of the world
+    // stage two: same strength, but towards the centre of the world, where the trunk is
     const dx = WORLD_W / 2 - (s.x + w / 2), dy = WORLD_H / 2 - (s.y + h / 2);
     const dist = Math.hypot(dx, dy) || 1;
     const k = strength * Math.min(1, dist / ARRIVE_RADIUS) / dist;
@@ -238,12 +241,11 @@
       size = START_SIZE + (1 - START_SIZE) * p * p * (3 - 2 * p);
     }
 
-    // before the first blow, the floor is the bottom of the (still) screen; the leaf is drawn
-    // smaller around its middle, so the floor is lowered to keep the small leaf on it
-    const floor = free ? WORLD_H - h : cam.y + window.innerHeight - h - REST_MARGIN + h * (1 - size) / 2;
-    const resting = !free && s.y >= floor - 1;
-    // before the first blow, the floor is the bottom of the (still) screen; when it falls back, its landing spot
-    const floor = landing ? landing.y - h / 2 : scene ? Infinity : free ? WORLD_H - h : cam.y + window.innerHeight - h - REST_MARGIN;
+    // before the first blow, the floor is the bottom of the (still) screen (the leaf is drawn smaller
+    // around its middle, so the floor is lowered to keep the small leaf on it); when it falls back,
+    // its landing spot
+    const floor = landing ? landing.y - h / 2 : scene ? Infinity : free ? WORLD_H - h
+      : cam.y + window.innerHeight - h - REST_MARGIN + h * (1 - size) / 2;
     const resting = (!free || landing) && s.y >= floor - 1;
 
     // landed among the other leaves: from now on it is one of them (it burns with them)
@@ -309,11 +311,9 @@
   }
 
   function render() {
-    const p = toScreen(s.x, s.y);
-    el.style.transform = `translate(${p.x}px, ${p.y}px) scale(${camera.zoom * size}) rotate(${s.angle}deg)`;
-    // placed by its centre, so it stays in the right place when the camera zooms out
+    // placed by its centre, so it stays in the right place when the camera zooms out or the leaf grows
     const c = toScreen(s.x + w / 2, s.y + h / 2);
-    el.style.transform = `translate(${c.x - w / 2}px, ${c.y - h / 2}px) scale(${camera.zoom}) rotate(${s.angle}deg)`;
+    el.style.transform = `translate(${c.x - w / 2}px, ${c.y - h / 2}px) scale(${camera.zoom * size}) rotate(${s.angle}deg)`;
   }
 
   let last = performance.now();

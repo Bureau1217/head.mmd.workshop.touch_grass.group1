@@ -95,7 +95,7 @@ body {
   margin: 0;
 }
 
-.news__me {
+.news__user {
   margin: 0 0 14px;
   font-size: var(--news-size);
   font-variant-numeric: tabular-nums;
@@ -104,12 +104,10 @@ body {
 .news__log {
   display: flex;
   flex-direction: column;
-  gap: 1px;
   margin: 0;
   padding: 0;
   list-style: none;
-  font-size: var(--news-size);
-  line-height: 1.25;
+  font-size: var(--news-size);  /* same size and spacing as the dialogue lines */
 }
 
 .news__log li {

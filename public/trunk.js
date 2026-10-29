@@ -9,7 +9,8 @@
   const { WORLD_W, WORLD_H, camera, toScreen } = window.world;
 
   //#region SETTINGS (font sizes are in style.css)
-  const CENTER_X = WORLD_W / 2 + 900; // centre of the cut face, in world coordinates
+  const CENTER_X = WORLD_W / 2; // centre of the cut face, in world coordinates: the centre of the world,
+                                // where the leaf is pushed in stage two (leaf.js)
   const CENTER_Y = WORLD_H / 2;
   const RADIUS = 340;  // px, half the width of the cut face: the trunk is a little under 3 squares of the map grid
   const TILT = 0.8;    // how flat the face looks: 1 = a circle, lower = seen more from the side
