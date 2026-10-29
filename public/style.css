@@ -109,6 +109,37 @@ body {
   will-change: transform;
 }
 
+/* ---- trunk: the cut trunk drawn by trunk.js, ASCII bark with its rings as spiral text ---- */
+.trunk {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 4;  /* under the leaf */
+  color: var(--ink);
+  pointer-events: none;
+  user-select: none;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+.trunk__bark {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 16px;
+  line-height: 1;
+  white-space: pre;
+}
+
+.trunk__rings {
+  position: absolute;
+  top: 0;
+  left: 0;
+  overflow: visible;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  fill: currentColor;
+}
+
 /* fully visible for most of its life, then fades out; main.js removes the line when this ends */
 @keyframes news-fade {
   0%, 80% { opacity: 1; }
