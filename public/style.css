@@ -27,7 +27,7 @@
   --grain-strength: 14;       /* 0–255, how visible the speckles are */
 
   /* forest news panel */
-  --panel-width: 440px;
+  --panel-width: 300px;
   --panel-top: 32px;
   --panel-left: 28px;
   --title-size: var(--font-size);
@@ -82,19 +82,6 @@ body {
   font-weight: 500;
 }
 
-/* the dialogue under the title, written line by line by dialog.js */
-.dialog {
-  margin: 0 0 24px;
-}
-
-.dialog:empty {
-  display: none;
-}
-
-.dialog__line {
-  margin: 0;
-}
-
 .news__user {
   margin: 0 0 14px;
   font-size: var(--news-size);
@@ -107,7 +94,7 @@ body {
   margin: 0;
   padding: 0;
   list-style: none;
-  font-size: var(--news-size);  /* same size and spacing as the dialogue lines */
+  font-size: var(--news-size);
 }
 
 .news__log li {
