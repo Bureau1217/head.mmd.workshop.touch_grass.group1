@@ -129,6 +129,7 @@ function showLookups() {
   $('lookups').replaceChildren(...rows);
 }
 
+const round2 = n => Math.round(n * 100) / 100;
 const statusOf = o => o.status || null; // a block without data carries only its status
 window.addEventListener('firedata', ({ detail: d }) => {
   const u = d.userLocation, nf = d.nearestFire, dir = d.nearestFireDirection, w = d.wind, fd = d.fireDanger;
@@ -149,7 +150,7 @@ window.addEventListener('firedata', ({ detail: d }) => {
   const r = d.burnRate, c = d.likelihood, q = d.frequency, i = d.device;
   pairs('eight', [
     ['1 · burn rate', `${r.charactersPerSecond.toFixed(1)} characters/second${d.burning ? ' · burning' : ''}`],
-    ['2 · frequency', d.burning ? 'paused while burning' : `+${q.percentPerMinute.toFixed(1)}% a minute · next fire in ${duration(q.minutesToNextFire * 60000)}`],
+    ['2 · frequency', q.minutesToNextFire === null ? (c.status === 'loaded' ? 'nobody online' : c.status) : `+${q.percentPerMinute.toFixed(1)}% a minute · next fire in ${duration(q.minutesToNextFire * 60000)}`],
     ['3 · likelihood', `${Math.floor(c.percent)}%`],
     ['4 · fires near you', dl.count === null ? dl.status : `${fmt(dl.count)} within ${dl.withinKm} km`],
     ['5 · your location', u.lat !== null ? `${u.city ? u.city + ' · ' : ''}${u.lat}, ${u.lon}` : u.status],
@@ -164,9 +165,10 @@ window.addEventListener('firedata', ({ detail: d }) => {
   total('humidityTotal', statusOf(hu) ? '—' : `${hu.percent}%`, statusOf(hu) || `relative humidity · ${hu.air} air`);
   pairs('humidity', statusOf(hu) ? [] : [
     ['effect', hu.dryFactor > 1 ? 'dry: the fire burns faster and starts sooner' : hu.asWater < 1 ? 'damp: it works as water on the fire' : 'none'],
-    ['× dry', `${hu.dryFactor} · on the burn rate and the likelihood`],
+    ['× dry', `${hu.dryFactor} · on the burn rate`],
+    ['× humid', `${round2(1 + (50 - hu.percent) / 100)} · on what you add to the likelihood`],
     ['as water', `${hu.asWater} · on the burn rate${r.waterFrom === 'water' ? ' (real water is wetter right now)' : ''}`],
-    ['scale', '20% or less: dry ×1.5 · 50%: no effect · 100%: water ×0.2'],
+    ['scale', 'burn rate: 20% or less dry ×1.5 · 50% no effect · 100% water ×0.2 · likelihood: 0% ×1.5 · 50% ×1 · 100% ×0.5'],
   ]);
 
   const near = nf.distanceKm === undefined ? nf.status : `fire ${fmt(nf.distanceKm)} km away`;
@@ -181,17 +183,14 @@ window.addEventListener('firedata', ({ detail: d }) => {
     ['× water', `${r.water} · ${r.waterFrom === 'humidity' ? `damp air, ${d.humidity.percent}% humidity`
       : i.secondsSinceWater === null ? 'no water yet' : `water ${duration(i.secondsSinceWater * 1000)} ago`}`],
   ]);
-  total('chanceTotal', `${Math.floor(c.percent)}%`, d.burning ? 'paused while burning'
-    : `+${q.percentPerMinute.toFixed(1)}% a minute · next fire in ${duration(q.minutesToNextFire * 60000)}`);
+  total('chanceTotal', `${Math.floor(c.percent)}%`, c.status !== 'loaded' ? c.status
+    : q.minutesToNextFire === null ? 'nobody online'
+    : `${c.solo ? 'only you (?solo)' : 'shared by everyone'} · +${q.percentPerMinute.toFixed(1)}% a minute · next fire in ${duration(q.minutesToNextFire * 60000)}`);
+  // one line per visitor online: base × time on the platform × humidity, then the sum
   pairs('chance', [
-    ['base', c.base],
-    ['× near', c.near],
-    ['× fires', `${c.fires} · ${dl.count === null ? dl.status : `${fmt(dl.count)} nearby`}`],
-    ['× dry', `${c.dry} · ${statusOf(hu) || `${hu.percent}% humidity`}`],
-    ['× toward', `${c.toward} · ${statusOf(dir) || (dir.towardUser ? 'the nearest fire is coming your way' : 'not coming your way')}`],
-    ['× danger', `${c.danger} · ${fd.class || 'unknown'}`],
-    ['× device', c.device],
-    ['× tab', `${c.tab}${i.tabHidden ? ' · tab in the background' : ''}`],
+    ...c.visitors.map(v => [who(v.id),
+      `${c.base} × time ${v.time} (${duration(v.minutes * 60000)}) × humid ${v.humid} (${v.humidity === null ? 'humidity unknown' : `${v.humidity}%`}) = +${v.perMin.toFixed(1)}% a minute`]),
+    ['= sum', `+${q.percentPerMinute.toFixed(1)}% a minute`],
   ]);
 });
 //#endregion
@@ -219,7 +218,9 @@ function show() {
 }
 
 const socket = io();
-socket.on('connect', () => { socket.emit('watch'); $('status').textContent = 'Live'; });
+// ?solo: follows the likelihood of this browser's visitor testing alone (index.html?solo)
+const solo = new URLSearchParams(location.search).has('solo');
+socket.on('connect', () => { socket.emit('watch', solo ? { solo: userID } : undefined); $('status').textContent = 'Live'; });
 socket.on('disconnect', () => { $('status').textContent = 'Connection lost · reconnecting…'; });
 socket.on('snapshot', snapshot => {
   window.forestData = data = snapshot;
@@ -242,6 +243,7 @@ socket.on('log', entry => {
   if (entry.kind === 'water') fire.water();
   if (entry.kind === 'fire') fire.startFire();
 });
+socket.on('likelihood', l => window.dispatchEvent(new CustomEvent('forestlikelihood', { detail: l })));
 
 setInterval(() => { if (data) showAmounts(); }, 1000); // keeps "server running for" ticking
 //#endregion

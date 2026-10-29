@@ -43,6 +43,7 @@ function showEvent({ type, id, isNew, time, text, action }) {
   if (type === 'left') addNews(`${name} left the forest`, age);
   if (type === 'line') addNews(`${name}: ${text}`, age);
   if (type === 'action') addNews(`${name} ${ACTION_NEWS[action]}`, age);
+  if (type === 'firestart') addNews('The likelihood reached 100%: a fire started', age);
 }
 
 // ---- rate of burning and likelihood of a fire, every second from fire.js ----
@@ -51,14 +52,15 @@ window.addEventListener('firedata', ({ detail: d }) => {
   document.getElementById('fireRate').innerHTML =
     `<b>${d.burning ? 'Burning' : 'Would burn'} ${r.charactersPerSecond.toFixed(1)} characters/second</b><br>` +
     `${r.base} × time ${r.time} × near ${r.near} × wind ${r.wind} × dry ${r.dry} × device ${r.device} × water ${r.water}<br>` +
-    `<b>Fire likelihood ${Math.floor(c.percent)}%</b> ${d.burning ? '· paused while burning' : `· +${d.frequency.percentPerMinute.toFixed(1)}% a minute`}`;
+    `<b>Fire likelihood ${Math.floor(c.percent)}%</b> · +${d.frequency.percentPerMinute.toFixed(1)}% a minute ${c.solo ? 'from you alone (?solo)' : `from ${c.visitors.length} online`}`;
 });
 
 //#region MEMORY: memory.txt on the server, one { id, text } line per visitor (see server.js)
 // Other scripts read it with forest.memory, and hear about changes through window events:
-//   'memoryline' (detail: { id, text }), 'memoryburn' (detail: { owner, word }), 'forestaction' (detail: event)
-// and change it with forest.burn(owner, word) and forest.send('water' | 'fire' | 'help').
-const forest = window.forest = { memory: [], burn: () => {}, send: () => {} };
+//   'memoryline' (detail: { id, text }), 'memoryburn' (detail: { owner, word }), 'forestaction' (detail: event),
+//   'forestlikelihood' (detail: the shared likelihood of a fire, every second, see server.js)
+// and change it with forest.burn(owner, word), forest.send('water' | 'fire' | 'help') and forest.humidity(percent).
+const forest = window.forest = { memory: [], burn: () => {}, send: () => {}, humidity: () => {} };
 const announce = (name, detail) => window.dispatchEvent(new CustomEvent(name, { detail }));
 
 // where the visitor is, for their line of memory: rounded coordinates and the city of their time zone
@@ -81,9 +83,13 @@ const socket = io();
 
 forest.burn = (owner, word) => socket.emit('burn', { owner, word });
 forest.send = type => socket.emit('action', type);
+let humidity = null; // sent again after a reconnect
+forest.humidity = h => { humidity = h; socket.emit('humidity', h); };
 let placeSent = false;
 
-socket.on('connect', () => socket.emit('hello', userID));
+// ?solo: for testing, a likelihood of a fire that counts only this visitor (see server.js)
+const solo = new URLSearchParams(location.search).has('solo');
+socket.on('connect', () => socket.emit('hello', userID, { solo }));
 socket.on('welcome', ({ isNew, history, now, maxHistory: max, memory, hasLine }) => {
   clockOffset = Date.now() - now;
   maxHistory = max;
@@ -91,6 +97,7 @@ socket.on('welcome', ({ isNew, history, now, maxHistory: max, memory, hasLine })
   history.forEach(showEvent);
   addNews(isNew ? `${user} joined the forest` : `${user} came back`);
   forest.memory = memory;
+  if (humidity !== null) socket.emit('humidity', humidity);
   // first visit: the server writes this visitor's line of memory from where they are
   if (!hasLine && !placeSent) { placeSent = true; findPlace().then(place => socket.emit('place', place)); }
 });
@@ -112,5 +119,7 @@ socket.on('burn', ({ owner, word }) => {
   announce('memoryburn', { owner, word });
 });
 socket.on('action', event => { showEvent(event); announce('forestaction', event); });
+socket.on('firestart', showEvent);
+socket.on('likelihood', l => announce('forestlikelihood', l));
 socket.on('disconnect', () => addNews('Connection lost · reconnecting…'));
 //#endregion

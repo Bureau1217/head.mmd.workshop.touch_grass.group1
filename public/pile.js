@@ -1,7 +1,7 @@
 // Pile: ASCII leaves falling one by one around the trunk while the likelihood of a fire grows.
 // The more likely a fire, the more leaves on the ground: they are what will burn.
-// With burning.js on the page, its likelihood is used; without it, it is simulated
-// (1% to 100% in one minute).
+// With fire.js on the page, the likelihood shared by everyone is used (from the server);
+// without it, it is simulated (1% to 100% in one minute).
 //
 // Needs world.js and trunk.js (loaded before it). To remove it, delete this file, its <script>
 // line in index.html and the .pile section in style.css; nothing else depends on it.
@@ -12,7 +12,7 @@
 
   //#region SETTINGS (font size is in style.css)
   const MAX_LEAVES = 50;   // leaves on the ground at 100%
-  const SIMULATED_S = 60;  // without burning.js: seconds to go from 1% to 100%
+  const SIMULATED_S = 60;  // without fire.js: seconds to go from 1% to 100%
   const NEAR = 0.8;        // closest landing spot, in half-widths of the trunk from its centre
   const FAR = 1.9;         // farthest landing spot
   const FALL = 500;        // px, how high above its spot a leaf starts falling
@@ -20,7 +20,7 @@
   const SWAY = 70;         // px, how far it swings from side to side as it falls
   const SPIN = 35;         // degrees, how much a leaf on the ground can be turned
   const SEED = 7;          // change it for another arrangement of the leaves
-  const SHOW_LEVEL = true; // the percentage in the bottom-right corner (hidden when burning.js shows its own)
+  const SHOW_LEVEL = true; // the percentage in the bottom-right corner
   //#endregion
 
   //#region LEAVES: the family, all drawn with the same characters as the visitor's leaf
@@ -109,10 +109,11 @@
   }
   //#endregion
 
-  //#region LIKELIHOOD: from burning.js when it is there, otherwise simulated
+  //#region LIKELIHOOD: from fire.js when it is there, otherwise simulated
   const start = performance.now();
+  const shared = () => !!window.fire;
   function level() {
-    if (window.burning) return window.burning.fireFactors().likelihood;
+    if (shared()) return window.fireData ? window.fireData.likelihood.percent : 0;
     return Math.min(100, 1 + 99 * (performance.now() - start) / 1000 / SIMULATED_S);
   }
   //#endregion
@@ -162,8 +163,7 @@
       leaf.landed = p === 1;
     }
 
-    label.hidden = !!window.burning;
-    label.textContent = `Likelihood of a fire: ${Math.floor(percent)}% (simulated)`;
+    label.textContent = `Likelihood of a fire: ${Math.floor(percent)}%${shared() ? '' : ' (simulated)'}`;
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);

@@ -4,7 +4,9 @@
 // (data.html shows them).
 //
 // Other scripts can call fire.water() when water is added here, and hear 'firestart' on window
-// when the likelihood reaches 100%. Water and fire from other visitors arrive through 'forestaction' (main.js).
+// when the likelihood reaches 100%. The likelihood is shared by everyone: the server grows it from
+// every visitor online ('forestlikelihood', main.js), and this script sends it the humidity here.
+// Water and fire from other visitors arrive through 'forestaction' (main.js).
 
 (() => {
   //#region STEP 1 · rate of burning, in characters lost per second
@@ -26,7 +28,7 @@
   let lastWater = -Infinity;   // seconds when water was last added, by anyone
   let nearestKm = null;        // distance to the closest fire seen in the last 7 days, null when unknown
   let frameMs = 16.7;          // smoothed time between frames
-  let burning = false;         // a fire is on: the likelihood stops growing
+  let burning = false;         // a fire is on
 
   const deviceFactor = () => 1 + Math.min(1, Math.max(0, (frameMs - 20) / 30)); // 50 fps or better = 1, 20 fps or worse = 2
 
@@ -44,36 +46,22 @@
   }
   //#endregion
 
-  //#region STEP 2 · likelihood of a fire starting, in percent
-  // Only grows while nothing is burning. At 100% a fire starts and it goes back to 0.
-  //   per minute = P_BASE × near × fires × toward × dry × danger × device × tab
-  //   near    1 → 3    3 with a fire right next to the visitor, falling to 1 at 150 km or more (GWIS hotspots, 7 days)
-  //   fires   1 → 2    how many hotspots are within FIRES_KM: 1 with none, 2 with FIRES_MAX or more
-  //   toward  1 or 1.5 1.5 when the wind pushes the nearest fire toward the visitor
-  //   dry     1 → 1.5  same as the rate of burning: humidity under HUMID_MID % makes a fire start sooner
-  //   danger  0.5 → 6  today's EFFIS Fire Danger class at the visitor's location (from the Fire Weather Index)
-  //   device  1 → 2    same measure as the rate of burning
-  //   tab     1 → 3    grows with the time the page has been open (capped at 30 minutes), ×2 while the tab is in the background
-  const P_BASE = 2, FIRES_MAX = 50;
-  const DANGER = [ // EFFIS classes: name, lowest FWI, weight
-    ['Very low', -Infinity, 0.5], ['Low', 5.2, 1], ['Moderate', 11.2, 1.5],
-    ['High', 21.3, 2.5], ['Very high', 38, 4], ['Extreme', 50, 6],
+  //#region STEP 2 · likelihood of a fire starting, in percent: from the server, one for the whole forest
+  // Every visitor online adds to it. At 100% a fire starts for everyone and it goes back to 0 (server.js).
+  //   per minute = Σ over the visitors online of  P_BASE × time × humid
+  //   time   1 → 3      grows with the time the visitor has been on the platform (capped at 30 minutes)
+  //   humid  1.5 → 0.5  the humidity where the visitor is: 50% has no effect, under it the fire starts sooner
+  //                     (0% = ×1.5), over it later (100% = ×0.5)
+  let shared = null; // the latest likelihood from the server, null until it arrives
+  const DANGER = [ // EFFIS classes: name, lowest FWI (shown on the data page)
+    ['Very low', -Infinity], ['Low', 5.2], ['Moderate', 11.2], ['High', 21.3], ['Very high', 38], ['Extreme', 50],
   ];
   let fwi = null;       // today's Fire Weather Index at the visitor's location, null when unknown
-  let likelihood = 0;   // percent
   const dangerOf = v => DANGER.reduce((cls, c) => v >= c[1] ? c : cls, DANGER[0]);
-
-  function fireFactors() {
-    const near = nearestKm === null ? 1 : 1 + 2 * Math.max(0, 1 - nearestKm / 150);
-    const count = 1 + Math.min(1, (fires.count || 0) / FIRES_MAX);
-    const toward = spread() && spread().towardUser ? 1.5 : 1;
-    const dry = dryFactor();
-    const danger = fwi === null ? 1 : dangerOf(fwi)[2];
-    const device = deviceFactor();
-    const minutes = (performance.now() - opened) / 60000;
-    const tab = (1 + Math.min(minutes, 30) / 15) * (document.hidden ? 2 : 1);
-    return { near, fires: count, toward, dry, danger, device, tab, perMin: P_BASE * near * count * toward * dry * danger * device * tab };
-  }
+  window.addEventListener('forestlikelihood', ({ detail }) => {
+    shared = detail;
+    if (detail.fireStarted) { startFire(); window.dispatchEvent(new CustomEvent('firestart')); }
+  });
   //#endregion
 
   //#region DEVICE: time between animation frames, smoothed
@@ -163,6 +151,7 @@
     try {
       [wind.atUser, wind.atFire = null] = await findWind(points);
       wind.status = 'loaded';
+      if (window.forest) forest.humidity(wind.atUser.humidity); // for the shared likelihood
     } catch { wind.status = 'Open-Meteo unreachable'; }
   }
 
@@ -192,7 +181,7 @@
 
   //#region WATER AND FIRE
   function water() { lastWater = seconds(); }
-  function startFire() { likelihood = 0; burning = true; }
+  function startFire() { burning = true; }
   function stopFire() { burning = false; }
   window.fire = { water, startFire, stopFire };
   window.addEventListener('forestaction', ({ detail }) => {
@@ -201,18 +190,11 @@
   });
   //#endregion
 
-  //#region EVERY SECOND: grow the likelihood, then log everything as JSON
+  //#region EVERY SECOND: log everything as JSON
   // a timer rather than the animation, so it keeps counting when the visitor clicks away from the tab
   const round = (n, d = 2) => Math.round(n * 10 ** d) / 10 ** d;
-  let lastTick = Date.now();
   setInterval(() => {
-    const now = Date.now(), minutes = (now - lastTick) / 60000; lastTick = now;
-    const p = fireFactors();
-    let fireStarted = false;
-    if (!burning) {
-      likelihood = Math.min(100, likelihood + p.perMin * minutes);
-      if (likelihood >= 100) { startFire(); fireStarted = true; window.dispatchEvent(new CustomEvent('firestart')); }
-    }
+    const now = Date.now();
     const f = burnFactors();
     const n = fires.nearest, sp = spread();
     const data = window.fireData = {
@@ -223,16 +205,21 @@
         charactersPerSecond: round(f.rate),
         base: BASE, time: round(f.time), near: f.near, wind: round(f.wind), dry: round(f.dry), device: round(f.device), water: round(f.water), waterFrom: f.waterFrom,
       },
-      // 2. how often a fire starts: what the likelihood gains a minute, and when it reaches 100% at this pace
+      // 2. how often a fire starts: what the shared likelihood gains a minute, and when it reaches 100% at this pace
       frequency: {
-        percentPerMinute: round(p.perMin),
-        minutesToNextFire: burning ? null : round((100 - likelihood) / p.perMin, 1),
-        fireStarted,
+        percentPerMinute: shared ? round(shared.perMin) : 0,
+        minutesToNextFire: shared && shared.minutesToNextFire !== null ? round(shared.minutesToNextFire, 1) : null,
+        fireStarted: shared ? shared.fireStarted : false,
       },
-      // 3. chance of a fire starting
+      // 3. chance of a fire starting, shared by everyone: what each visitor online adds to it
       likelihood: {
-        percent: round(likelihood),
-        base: P_BASE, near: round(p.near), fires: round(p.fires), toward: p.toward, dry: round(p.dry), danger: p.danger, device: round(p.device), tab: round(p.tab),
+        status: shared ? 'loaded' : 'waiting for the server',
+        solo: shared ? !!shared.solo : false, // ?solo: counts only this visitor
+        percent: shared ? round(shared.percent) : 0,
+        base: shared ? shared.base : null,
+        visitors: shared ? shared.visitors.map(v => ({
+          id: v.id, minutes: round(v.minutes, 1), humidity: v.humidity, time: round(v.time), humid: round(v.humid), perMin: round(v.perMin),
+        })) : [],
       },
       // 4. satellite hotspots around the visitor
       firesNearby: { status: fires.status, count: fires.count, withinKm: FIRES_KM, days: 7 },

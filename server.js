@@ -1,6 +1,6 @@
 // Touch Grass: live server.
 // Serves the site from public/, tells everyone when visitors join or leave, relays what they do
-// (water, fire, help), and keeps the memory of the website in memory.txt.
+// (water, fire, help), grows the shared likelihood of a fire, and keeps the memory of the website in memory.txt.
 // public/data.html shows everything the server knows, live, with the log printed below.
 //
 // memory.txt: one line per visitor, in the order they joined:  <visitor id><TAB><their line of text>
@@ -78,6 +78,96 @@ function note(kind, info = {}) {
   pushSnapshot();
 }
 
+// ---- likelihood of a fire starting, in percent: one for the whole forest, grown every second ----
+// Each visitor online adds to it. At 100% a fire starts for everyone and it goes back to 0.
+//   per minute = Σ over the visitors online of  P_BASE × time × humid
+//   time   1 → 3      grows with the time the visitor has been on the platform (capped at 30 minutes)
+//   humid  1.5 → 0.5  the humidity where the visitor is (sent by fire.js): 50% has no effect, every point
+//                     under it starts the fire 1% sooner (0% = ×1.5), every point over it 1% later (100% = ×0.5)
+//
+// When nobody is online, the forest calms down: it goes down by P_DECAY a minute until 0, and goes up
+// again from where it is when someone comes back.
+// It is kept in likelihood.txt (<percent><TAB><time>), so it survives the server restarting (a host putting it
+// to sleep), and the time the server was off counts as time with nobody online.
+//
+// To test alone, open the site with ?solo: that visitor gets a likelihood of their own, counting only
+// them, and is left out of everyone else's (sent to the room 'solo:<id>', data.html?solo joins it too).
+const P_BASE = 2, HUMID_MID = 50, P_DECAY = 1; // P_DECAY: % lost a minute with nobody online (100% → 0 in 100 min)
+const LIKELIHOOD = process.env.LIKELIHOOD_FILE || path.join(path.dirname(MEMORY), 'likelihood.txt');
+let likelihood = 0;
+if (fs.existsSync(LIKELIHOOD)) {
+  const [percent, time] = fs.readFileSync(LIKELIHOOD, 'utf8').split('\t').map(parseFloat);
+  const offMinutes = Number.isFinite(time) ? Math.max(0, Date.now() - time) / 60000 : 0;
+  likelihood = Math.min(100, Math.max(0, (percent || 0) - P_DECAY * offMinutes));
+}
+let savedLikelihood = likelihood;
+// written at most every 5 seconds, and only when it changed
+setInterval(() => {
+  if (likelihood === savedLikelihood) return;
+  savedLikelihood = likelihood;
+  fs.writeFile(LIKELIHOOD, `${likelihood}\t${Date.now()}`, () => {});
+}, 5000);
+const soloLikelihood = new Map(); // visitor id → their own likelihood, going down while they are away
+// the visitors online whose sockets pass `keep`
+function visitorFactors(now, keep) {
+  const byId = new Map(); // a visitor with several tabs counts once, from their first tab
+  for (const s of io.of('/').sockets.values()) {
+    if (!s.data.id || !keep(s)) continue;
+    const v = byId.get(s.data.id) || { since: s.data.since, humidity: null };
+    v.since = Math.min(v.since, s.data.since);
+    if (s.data.humidity !== undefined) v.humidity = s.data.humidity;
+    byId.set(s.data.id, v);
+  }
+  return [...byId].map(([id, { since, humidity }]) => {
+    const minutes = (now - since) / 60000;
+    const time = 1 + Math.min(minutes, 30) / 15;
+    const humid = humidity === null ? 1 : 1 + (HUMID_MID - humidity) / 100;
+    return { id, minutes, humidity, time, humid, perMin: P_BASE * time * humid };
+  });
+}
+// grows a likelihood by what `visitors` add in `minutes` (or lowers it when there are none), and what to send to the browsers
+function grow(percent, visitors, minutes) {
+  const perMin = visitors.reduce((n, v) => n + v.perMin, 0);
+  percent = visitors.length ? Math.min(100, percent + perMin * minutes) : Math.max(0, percent - P_DECAY * minutes);
+  const fireStarted = percent >= 100;
+  if (fireStarted) percent = 0;
+  return {
+    percent, base: P_BASE, decay: P_DECAY, perMin, fireStarted,
+    minutesToNextFire: perMin > 0 ? (100 - percent) / perMin : null,
+    visitors,
+  };
+}
+let lastTick = Date.now();
+setInterval(() => {
+  const now = Date.now(), minutes = (now - lastTick) / 60000; lastTick = now;
+  const shared = grow(likelihood, visitorFactors(now, s => !s.data.solo), minutes);
+  likelihood = shared.percent;
+  if (shared.fireStarted) {
+    const event = { type: 'firestart', time: now };
+    record(event);
+    io.to('shared').emit('firestart', event);
+    note('firestart', { online: shared.visitors.length, perMin: Math.round(shared.perMin * 100) / 100 });
+  }
+  io.to('shared').emit('likelihood', shared);
+
+  // each visitor testing alone
+  // (one who left: their likelihood goes down while they are away, and is forgotten at 0)
+  const soloIds = new Set([...io.of('/').sockets.values()].filter(s => s.data.solo && s.data.id).map(s => s.data.id));
+  for (const [id, percent] of soloLikelihood) if (!soloIds.has(id)) {
+    const left = Math.max(0, percent - P_DECAY * minutes);
+    if (left > 0) soloLikelihood.set(id, left); else soloLikelihood.delete(id);
+  }
+  for (const id of soloIds) {
+    const solo = grow(soloLikelihood.get(id) || 0, visitorFactors(now, s => s.data.solo && s.data.id === id), minutes);
+    soloLikelihood.set(id, solo.percent);
+    if (solo.fireStarted) {
+      io.to('solo:' + id).emit('firestart', { type: 'firestart', time: now });
+      note('firestart', { solo: true, id });
+    }
+    io.to('solo:' + id).emit('likelihood', { ...solo, solo: true });
+  }
+}, 1000);
+
 const app = express();
 app.use(express.static(path.join(__dirname, 'public')));
 // the memory, live
@@ -96,9 +186,12 @@ function allowed(socket, kind, perSecond) {
 }
 
 io.on('connection', socket => {
-  socket.on('hello', id => {
+  socket.on('hello', (id, options) => {
     if (typeof id !== 'string' || !ID.test(id) || socket.data.id) return;
     socket.data.id = id;
+    socket.data.since = Date.now(); // time on the platform, for the likelihood of a fire
+    socket.data.solo = !!(options && options.solo === true); // ?solo: a likelihood counting only this visitor
+    socket.join(socket.data.solo ? 'solo:' + id : 'shared');
     const isNew = !seen.has(id);
     seen.add(id);
     // `now` lets the browser line its clock up with the server's, so news fades at the same moment for everyone
@@ -136,6 +229,14 @@ io.on('connection', socket => {
     note('line', { id, words: wordsIn(text), text });
   });
 
+  // the relative humidity where the visitor is, in percent (Open-Meteo, from fire.js)
+  socket.on('humidity', h => {
+    if (!socket.data.id || !Number.isFinite(h) || h < 0 || h > 100 || !allowed(socket, 'humidity', 2)) return;
+    if (socket.data.humidity === h) return;
+    socket.data.humidity = h;
+    note('humidity', { id: socket.data.id, percent: h });
+  });
+
   // a word burned away on someone's screen: it leaves the memory
   socket.on('burn', b => {
     if (!socket.data.id || !b || typeof b.owner !== 'string' || typeof b.word !== 'string' || b.word.length > 60) return;
@@ -165,8 +266,11 @@ io.on('connection', socket => {
 
   // the data page: everything so far, then every log entry and snapshot as they happen
   // (it doesn't say hello, so it isn't counted as a visitor)
-  socket.on('watch', () => {
+  // with { solo: id } it follows that visitor's own likelihood (data.html?solo) instead of the shared one
+  socket.on('watch', options => {
     socket.join('watch');
+    const soloId = options && options.solo;
+    socket.join(typeof soloId === 'string' && ID.test(soloId) ? 'solo:' + soloId : 'shared');
     socket.emit('snapshot', snapshot(true));
   });
 
