@@ -35,25 +35,73 @@ function addNews(message, age = 0) {
 }
 
 // turns an event from the server into a news line
-function showEvent({ type, id, isNew, time }) {
+const ACTION_NEWS = { water: 'brought water', fire: 'started a fire', help: 'called for help' };
+function showEvent({ type, id, isNew, time, text, action }) {
   const age = Math.max(0, Date.now() - clockOffset - time);
-  if (type === 'joined') addNews(isNew ? `${nameOf(id)} joined the forest` : `${nameOf(id)} came back`, age);
-  if (type === 'left') addNews(`${nameOf(id)} left the forest`, age);
+  const name = id === userID ? user : nameOf(id);
+  if (type === 'joined') addNews(isNew ? `${name} joined the forest` : `${name} came back`, age);
+  if (type === 'left') addNews(`${name} left the forest`, age);
+  if (type === 'line') addNews(`${name}: ${text}`, age);
+  if (type === 'action') addNews(`${name} ${ACTION_NEWS[action]}`, age);
 }
+
+//#region MEMORY: memory.txt on the server, one { id, text } line per visitor (see server.js)
+// Other scripts read it with forest.memory, and hear about changes through window events:
+//   'memoryline' (detail: { id, text }), 'memoryburn' (detail: { owner, word }), 'forestaction' (detail: event)
+// and change it with forest.burn(owner, word) and forest.send('water' | 'fire' | 'help').
+const forest = window.forest = { memory: [], burn: () => {}, send: () => {} };
+const announce = (name, detail) => window.dispatchEvent(new CustomEvent(name, { detail }));
+
+// where the visitor is, for their line of memory: rounded coordinates and the city of their time zone
+const tzCity = () => { try { return (Intl.DateTimeFormat().resolvedOptions().timeZone || '').split('/').pop().replace(/_/g, ' '); } catch { return ''; } };
+function findPlace() {
+  return new Promise(done => {
+    if (!navigator.geolocation) return done({ city: tzCity() });
+    navigator.geolocation.getCurrentPosition(
+      // rounded to about 1 km before it leaves the browser
+      pos => done({ lat: +pos.coords.latitude.toFixed(2), lon: +pos.coords.longitude.toFixed(2), city: tzCity() }),
+      () => done({ city: tzCity() }),
+      { maximumAge: 3600000, timeout: 15000 });
+  });
+}
+//#endregion
 
 //#region SOCKET.IO SERVER EVENTS
 // ---- server: connects to the one that served this page (works locally and through the Cloudflare tunnel) ----
 const socket = io();
 
+forest.burn = (owner, word) => socket.emit('burn', { owner, word });
+forest.send = type => socket.emit('action', type);
+let placeSent = false;
+
 socket.on('connect', () => socket.emit('hello', userID));
-socket.on('welcome', ({ isNew, history, now, maxHistory: max }) => {
+socket.on('welcome', ({ isNew, history, now, maxHistory: max, memory, hasLine }) => {
   clockOffset = Date.now() - now;
   maxHistory = max;
   log.replaceChildren(); // start from the server's history, so a reconnect doesn't show lines twice
   history.forEach(showEvent);
   addNews(isNew ? `${user} joined the forest` : `${user} came back`);
+  forest.memory = memory;
+  // first visit: the server writes this visitor's line of memory from where they are
+  if (!hasLine && !placeSent) { placeSent = true; findPlace().then(place => socket.emit('place', place)); }
 });
 socket.on('joined', showEvent);
 socket.on('left', showEvent);
+socket.on('line', event => {
+  showEvent(event);
+  if (forest.memory.some(l => l.id === event.id)) return;
+  const line = { id: event.id, text: event.text };
+  forest.memory.push(line);
+  announce('memoryline', line);
+});
+socket.on('burn', ({ owner, word }) => {
+  const line = forest.memory.find(l => l.id === owner);
+  const words = line ? line.text.split(' ') : [];
+  if (!words.includes(word)) return;
+  words.splice(words.indexOf(word), 1);
+  line.text = words.join(' ');
+  announce('memoryburn', { owner, word });
+});
+socket.on('action', event => { showEvent(event); announce('forestaction', event); });
 socket.on('disconnect', () => addNews('Connection lost · reconnecting…'));
 //#endregion

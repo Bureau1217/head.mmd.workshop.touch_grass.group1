@@ -7,3 +7,4 @@ references/
 node_modules/
 *.log
 .env
+memory.txt
