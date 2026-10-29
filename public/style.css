@@ -3,8 +3,10 @@
 
 /* ---- settings: change the look of the whole site here ---- */
 :root {
-  --font: Arial, "Helvetica Neue", Helvetica, sans-serif;
+  --font: "Brown Mono LL", Arial, "Helvetica Neue", Helvetica, sans-serif;
   --font-size: 12px;
+  /* monospaced font for the ASCII drawings; Brown Mono LL is used where it is installed */
+  --font-mono: "Brown Mono LL", Menlo, Consolas, "Courier New", monospace;
 
   --paper: #fbfbfa;     /* background */
   --ink: #0b0b0b;       /* text */
@@ -92,6 +94,54 @@ body {
   z-index: 0;
   width: 100%;
   height: 100%;
+}
+
+/* ---- leaf: the ASCII leaf drawn by leaf.js, above the world and below the panels ---- */
+.leaf {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 5;
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 18px;
+  line-height: 1.15;
+  color: var(--ink);
+  white-space: pre;
+  pointer-events: none;
+  user-select: none;
+  will-change: transform;
+}
+
+/* ---- trunk: the cut trunk drawn by trunk.js, ASCII bark with its rings as spiral text ---- */
+.trunk {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 4;  /* under the leaf */
+  color: var(--ink);
+  pointer-events: none;
+  user-select: none;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+.trunk__bark {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 16px;
+  line-height: 1;
+  white-space: pre;
+}
+
+.trunk__rings {
+  position: absolute;
+  top: 0;
+  left: 0;
+  overflow: visible;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  fill: currentColor;
 }
 
 /* fully visible for most of its life, then fades out; main.js removes the line when this ends */
