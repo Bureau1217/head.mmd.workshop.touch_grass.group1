@@ -21,6 +21,10 @@
   --news-size: 11px;
   --news-lifetime: 9s;  /* how long a news line stays before it is gone; it fades during the last part */
 
+  /* data page (data.html) */
+  --rule: #e2e2de;      /* thin lines between rows */
+  --mono: ui-monospace, Menlo, Consolas, monospace;  /* the live log */
+
   color-scheme: light;
 }
 
@@ -94,4 +98,120 @@ body {
 @keyframes news-fade {
   0%, 80% { opacity: 1; }
   100% { opacity: 0; }
+}
+
+/* ---- data page (data.html): everything the server knows, filled in by data.js ---- */
+.data {
+  max-width: 1000px;
+  padding: var(--panel-top) var(--panel-left) 64px;
+  padding-left: max(var(--panel-left), env(safe-area-inset-left, 0px));
+  font-size: var(--news-size);
+}
+
+.data section {
+  margin-top: 28px;
+}
+
+.data h2 {
+  margin: 0 0 8px;
+  font-size: var(--news-size);
+  font-weight: 700;
+}
+
+.data h2 a,
+.data__hint {
+  margin-left: 8px;
+  font-weight: 400;
+  color: var(--ink-soft);
+}
+
+.data__status {
+  margin: 0;
+  color: var(--ink-soft);
+}
+
+.data__amounts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 14px 16px;
+  margin: 0;
+}
+
+.data__amounts dd {
+  margin: 0;
+  font-size: var(--title-size);
+  font-variant-numeric: tabular-nums;
+}
+
+.data__amounts dt {
+  color: var(--ink-soft);
+}
+
+.data__pairs {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 3px 16px;
+  margin: 0;
+}
+
+.data__pairs dt {
+  color: var(--ink-soft);
+}
+
+.data__pairs dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.data__names {
+  margin: 0;
+}
+
+.data__memory {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.data__memory th {
+  text-align: left;
+  font-weight: 400;
+  color: var(--ink-soft);
+}
+
+.data__memory th,
+.data__memory td {
+  padding: 4px 16px 4px 0;
+  vertical-align: top;
+  border-bottom: 1px solid var(--rule);
+}
+
+.data__memory td:first-child {
+  white-space: nowrap;
+}
+
+.data__memory td:nth-child(2) {
+  font-variant-numeric: tabular-nums;
+}
+
+.data__log {
+  max-height: 60vh;
+  margin: 0;
+  padding: 8px 10px;
+  overflow-y: auto;
+  list-style: none;
+  border: 1px solid var(--rule);
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.data__log time {
+  color: var(--ink-soft);
+}
+
+/* your own entries, on the data page */
+.data .mine {
+  font-weight: 700;
 }

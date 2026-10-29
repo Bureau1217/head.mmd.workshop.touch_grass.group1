@@ -1,7 +1,7 @@
 // Wildfire statistics for a place, from GWIS (EFFIS / Copernicus). Used by server.js to write
 // each new visitor's line of memory. Runs on the server, so browsers never call GWIS for it.
 //
-// placeLine({ lat, lon, city }) -> one sentence or a few, for example:
+// placeLine({ lat, lon, city }) -> { text, stats }: the numbers, and one sentence or a few about them, for example:
 //   "Around Zurich, satellites mapped 3 wildfires within 50 km since 2012 and 2,359 hectares burned. ..."
 const GWIS = 'https://maps.effis.emergency.copernicus.eu/gwis';
 
@@ -54,27 +54,48 @@ async function fireDanger(lat, lon) {
   return m && +m[1] >= 0 ? DANGER.reduce((name, [n, min]) => +m[1] >= min ? n : name, DANGER[0][0]) : null;
 }
 
-async function placeLine(place) {
-  const pick = () => RECORDS[Math.floor(Math.random() * RECORDS.length)];
-  if (!place.lat && place.lat !== 0) return `${place.city ? `A visitor from ${place.city}` : 'A visitor'} kept their location to themselves. ${pick()}`;
-  const where = place.city ? `Around ${place.city}` : 'Around this visitor';
+// the numbers behind a line, or null when the visitor kept their location; each number is null when GWIS didn't answer
+async function placeStats(place) {
+  if (!place.lat && place.lat !== 0) return null;
   const [ba, hs, danger] = await Promise.allSettled([burntAreas(place.lat, place.lon), hotspots(place.lat, place.lon), fireDanger(place.lat, place.lon)]);
-  const parts = [];
+  const stats = { fires: null, hectares: null, largest: null, thisYear: null, hotspots: null, danger: null };
   if (ba.status === 'fulfilled') {
-    const fires = ba.value;
+    const fires = ba.value, year = String(new Date().getFullYear());
+    stats.fires = fires.length;
+    stats.hectares = Math.round(fires.reduce((s, f) => s + f.ha, 0));
     if (fires.length) {
-      const total = fires.reduce((s, f) => s + f.ha, 0);
       const big = fires.reduce((a, b) => b.ha > a.ha ? b : a);
-      const year = String(new Date().getFullYear());
-      const thisYear = fires.filter(f => f.date.startsWith(year)).length;
-      parts.push(`${where}, satellites mapped ${fmt(fires.length)} wildfire${fires.length === 1 ? '' : 's'} within 50 km since 2012 and ${fmt(total)} hectares burned.`);
-      parts.push(`The largest burned ${fmt(big.ha)} hectares in ${MONTHS[+big.date.slice(5, 7) - 1] || ''} ${big.date.slice(0, 4)}.`.replace('  ', ' '));
-      if (thisYear) parts.push(`${fmt(thisYear)} of them in ${year}.`);
+      stats.largest = { hectares: Math.round(big.ha), date: big.date.slice(0, 10) };
+    }
+    stats.thisYear = fires.filter(f => f.date.startsWith(year)).length;
+  }
+  if (hs.status === 'fulfilled') stats.hotspots = hs.value;
+  if (danger.status === 'fulfilled') stats.danger = danger.value;
+  return stats;
+}
+
+// the numbers written as the visitor's line of memory
+function lineOf(place, s) {
+  const pick = () => RECORDS[Math.floor(Math.random() * RECORDS.length)];
+  if (!s) return `${place.city ? `A visitor from ${place.city}` : 'A visitor'} kept their location to themselves. ${pick()}`;
+  const where = place.city ? `Around ${place.city}` : 'Around this visitor';
+  const parts = [];
+  if (s.fires !== null) {
+    if (s.fires) {
+      parts.push(`${where}, satellites mapped ${fmt(s.fires)} wildfire${s.fires === 1 ? '' : 's'} within 50 km since 2012 and ${fmt(s.hectares)} hectares burned.`);
+      parts.push(`The largest burned ${fmt(s.largest.hectares)} hectares in ${MONTHS[+s.largest.date.slice(5, 7) - 1] || ''} ${s.largest.date.slice(0, 4)}.`.replace('  ', ' '));
+      if (s.thisYear) parts.push(`${fmt(s.thisYear)} of them in ${new Date().getFullYear()}.`);
     } else parts.push(`${where}, no wildfire was mapped within 50 km since 2012.`);
   }
-  if (hs.status === 'fulfilled') parts.push(hs.value ? `This week satellites saw ${fmt(hs.value)} fire hotspot${hs.value === 1 ? '' : 's'} nearby.` : 'No fire hotspot nearby this week.');
-  if (danger.status === 'fulfilled' && danger.value) parts.push(`Fire danger today: ${danger.value}.`);
+  if (s.hotspots !== null) parts.push(s.hotspots ? `This week satellites saw ${fmt(s.hotspots)} fire hotspot${s.hotspots === 1 ? '' : 's'} nearby.` : 'No fire hotspot nearby this week.');
+  if (s.danger) parts.push(`Fire danger today: ${s.danger}.`);
   return parts.length ? parts.join(' ') : `${where}. ${pick()}`;
+}
+
+// -> { text, stats }
+async function placeLine(place) {
+  const stats = await placeStats(place);
+  return { text: lineOf(place, stats), stats };
 }
 
 module.exports = { placeLine };

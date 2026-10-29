@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Forest data</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="grain.js" defer></script>
+  <script src="/socket.io/socket.io.js" defer></script>
+  <script src="data.js" defer></script>
+</head>
+<body>
+  <main class="data">
+    <h1 class="news__title">Forest data</h1>
+    <p class="data__status" id="status">Connecting…</p>
+
+    <section>
+      <h2>Amounts</h2>
+      <dl class="data__amounts" id="amounts"></dl>
+    </section>
+
+    <section>
+      <h2>You · this browser</h2>
+      <dl class="data__pairs" id="you"></dl>
+    </section>
+
+    <section>
+      <h2>In the forest now</h2>
+      <p class="data__names" id="online"></p>
+    </section>
+
+    <section>
+      <h2>Memory <a href="/memory.txt" target="_blank">memory.txt</a></h2>
+      <table class="data__memory">
+        <thead><tr><th>visitor</th><th>words</th><th>line</th></tr></thead>
+        <tbody id="memory"></tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Live log <span class="data__hint">also in the browser console (⌥⌘J)</span></h2>
+      <ol class="data__log" id="log"></ol>
+    </section>
+  </main>
+</body>
+</html>
