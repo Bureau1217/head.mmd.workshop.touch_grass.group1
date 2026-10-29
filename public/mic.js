@@ -1,9 +1,10 @@
 // Microphone: visitors blow into their microphone to interact. The text on the right says
 // how they are blowing: "blowing softly" or "blowing steadily", and nothing when it's quiet.
+// Each state blows the leaf (leaf.js) at its own speed.
 // It asks for the microphone as soon as the page opens; this only works on https or localhost.
 //
 // To remove it completely, delete this file, its <script> line and the .mic line in
-// index.html; nothing else depends on it.
+// index.html; nothing else depends on it (the leaf then only moves with the arrow keys).
 
 (async () => {
   //#region SETTINGS
@@ -18,7 +19,19 @@
   const RISE = 1;         // 0–1, how fast the loudness follows a stronger breath; 1 is instant
   const FALL = 0.12;      // 0–1, how fast it follows a weaker one; lower feels smoother
   const DEBUG = false;    // true shows the loudness as a percentage after the text, to help tune the values above
+
+  // the leaf: how hard each state pushes it (0–1, 1 = as hard as an arrow key);
+  // the direction is chosen by leaf.js
+  const SOFT_STRENGTH = 0.4;   // "blowing softly"
+  const STEADY_STRENGTH = 1;   // "blowing steadily"
   //#endregion
+
+  const STRENGTH = { '': 0, 'blowing softly': SOFT_STRENGTH, 'blowing steadily': STEADY_STRENGTH };
+  function blowLeaf(state) {
+    if (!window.leaf) return;
+    const k = STRENGTH[state];
+    window.leaf.blow(0, -k, 'mic'); // only the strength counts
+  }
 
   const text = document.getElementById('micState');
 
@@ -69,6 +82,7 @@
   function show(state) {
     const swap = Boolean(state && shown);
     shown = state;
+    blowLeaf(state); // the leaf changes speed right away, the text follows with its fade
     text.style.transitionDuration = swap ? `${SWAP_FADE}ms` : '';
     if (!state) {
       text.classList.add('mic--hidden'); // the old text stays while it fades out

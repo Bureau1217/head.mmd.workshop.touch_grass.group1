@@ -9,7 +9,8 @@
   const { WORLD_W, WORLD_H, camera, toScreen } = window.world;
 
   //#region SETTINGS (font sizes are in style.css)
-  const CENTER_X = WORLD_W / 2 + 900; // centre of the cut face, in world coordinates
+  const CENTER_X = WORLD_W / 2; // centre of the cut face, in world coordinates: the centre of the world,
+                                // where the leaf is pushed in stage two (leaf.js)
   const CENTER_Y = WORLD_H / 2;
   const RADIUS = 340;  // px, half the width of the cut face: the trunk is a little under 3 squares of the map grid
   const TILT = 0.8;    // how flat the face looks: 1 = a circle, lower = seen more from the side
@@ -124,6 +125,8 @@
       lines.push(line.trimEnd());
     }
     bark.textContent = lines.join('\n');
+    // for the fire (pile.js): where the bark is in the world and the size of its characters
+    Object.assign(window.trunk, { bark, left: CENTER_X - ox, top: CENTER_Y - oy, cw, ch });
 
     svg.setAttribute('width', width);
     svg.setAttribute('height', height);
@@ -152,6 +155,10 @@
 
     text.innerHTML = '<textPath href="#trunk-rings"></textPath>';
     text.firstChild.textContent = words;
+
+    // for the fire (pile.js): the ring text, and how many of its characters fit on the spiral
+    const advance = text.getSubStringLength(0, 40) / 40;
+    Object.assign(window.trunk, { rings: text.firstChild, ringChars: Math.min(words.length, Math.floor(length / advance)) });
   }
   //#endregion
 
@@ -164,8 +171,10 @@
   //#endregion
 
   // wait for the fonts, so the characters are measured in the right font
-  document.fonts.ready.then(() => { build(); place(); });
+  // and for the page to load, so it is placed after the leaf has moved the camera in each frame
+  // (placed before, it trailed one frame behind and shook while the camera moved)
+  window.addEventListener('load', () => document.fonts.ready.then(() => { build(); place(); }));
 
   // for other scripts (the fire, saving the data…): where the trunk is
-  window.trunk = { el, x: CENTER_X, y: CENTER_Y, radius: RADIUS };
+  window.trunk = { el, x: CENTER_X, y: CENTER_Y, radius: RADIUS, tilt: TILT, depth: DEPTH };
 })();
