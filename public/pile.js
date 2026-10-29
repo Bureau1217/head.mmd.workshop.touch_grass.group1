@@ -1,7 +1,9 @@
 // Pile: ASCII leaves falling one by one around the trunk while the likelihood of a fire grows.
 // The more likely a fire, the more leaves on the ground: they are what will burn. At 100%, once the
-// last leaf has landed, one leaf catches fire and fire lines carry it from leaf to leaf, round the
-// trunk, and to the trunk, whose bark burns too, much slower. With the bark, the ring spiral catches
+// last leaf has landed, one leaf and the foot of the trunk catch fire and fire lines carry it from
+// leaf to leaf, round the trunk, and to the trunk, whose bark burns much slower. Most leaves keep
+// burning until the ring spiral has burnt; a few burn out on their own. Too much humidity
+// (sky.js) stops the fire: what has not burnt is saved. With the bark, the ring spiral catches
 // and burns from its outer end to the centre.
 // With burning.js on the page, its likelihood is used; without it, it is simulated
 // (1% to 100% in one minute).
@@ -27,18 +29,19 @@
   //#endregion
 
   //#region SETTINGS: fire
-  const SPREAD_S = 0.3;    // seconds for the fire to move one character further through a leaf
-  const BURN_S = 3;        // seconds a character flickers as F I R E before it turns to ash
+  const SPREAD_S = 0.5;    // seconds for the fire to move one character further through a leaf
+  const BURN_S = 6;        // seconds a character flickers as F I R E before it turns to ash
   const BLINK_MS = 120;    // how fast the letters flicker
   const ASH = 0.25;        // share of a leaf's characters left as a dot; the others disappear
   const SEND_S = 1.5;      // seconds a leaf burns before it sends fire lines to other leaves
   const LINKS = 2;         // how many leaves each burning leaf sets on fire
   const LINE_S = 0.06;     // seconds for the fire to move one character along a line
   const TRUNK_REACH = 300; // px, leaves closer than this to the bark send a fire line to the trunk
-  const TRUNK_LINKS = 4;   // how many fire lines reach the trunk (each one lights it at another spot)
+  const TRUNK_LINKS = 8;   // how many fire lines reach the trunk (each one lights it at another spot)
   const TRUNK_SLOWER = 60; // the whole bark takes this many times as long to burn as a leaf
-  const TRUNK_BURN_S = 80;  // seconds a bark character flickers as F I R E before it turns to ash
+  const TRUNK_BURN_S = 50;  // seconds a bark character flickers as F I R E before it turns to ash
   const TRUNK_ASH = 0.45;  // share of the bark's characters left as a dot
+  const ASH_LEAVES = 20;   // leaves that burn out as usual; the others keep burning until the spiral has burnt
   const LEAF_PACE = [0.5, 2]; // each leaf burns at its own pace, at random: from half to twice the usual time
   const RINGS_S = 120;     // seconds the ring spiral takes to burn, from its outer end to the centre;
                            // with burning.js, its rate of burning (characters per second) is used instead
@@ -208,7 +211,7 @@
       if (c === ' ') return c;
       const lit = t - item.times[r][x]; // seconds since this character caught fire
       if (lit < 0) { done = false; return item.hidden ? ' ' : c; }
-      if (lit > (item.burnS || BURN_S)) return item.ash(r, x);
+      if (!item.lasting && lit > (item.burnS || BURN_S)) return item.ash(r, x);
       done = false;
       if (rand(r * 31 + x, tick) < 0.25) return ' '; // flicker
       return 'FIRE'[(tick + r + x) % 4];
@@ -340,22 +343,25 @@
   }
   //#endregion
 
-  //#region TRUNK FIRE: the bark burns like a leaf, from every spot a fire line reaches
+  //#region TRUNK FIRE: the bark burns like a leaf, from every spot a fire line reaches at its foot
   // (only the ASCII bark: the ring text is not touched)
   let trunkFire = null, trunkLines = 0;
   const trunkAsh = (r, x) => rand(r * 31 + x, SEED + 9) < TRUNK_ASH ? '.' : ' ';
   const barkRows = () => trunkFire ? trunkFire.rows : window.trunk.bark.textContent.split('\n');
 
-  // the character of the bark closest to a point of the world, with where it is
+  // the character at the foot of the bark closest to a point of the world, with where it is:
+  // fire lines only reach the trunk at its foot, so the fire climbs it from the bottom
   function nearestBark(px, py) {
     const t = window.trunk;
     if (!t || !t.bark) return null;
+    const foot = []; // the lowest character of each column
+    barkRows().forEach((row, r) => [...row].forEach((c, x) => { if (c !== ' ') foot[x] = r; }));
     let best = null;
-    barkRows().forEach((row, r) => [...row].forEach((c, x) => {
-      if (c === ' ') return;
+    foot.forEach((r, x) => {
       const wx = t.left + (x + 0.5) * t.cw, wy = t.top + (r + 0.5) * t.ch, d = Math.hypot(wx - px, wy - py);
+      if (wy < t.y) return; // a column with only the rim of the cut face: not the foot
       if (!best || d < best.d) best = { x: wx, y: wy, d, bark: { x, r } };
-    }));
+    });
     return best;
   }
 
@@ -419,23 +425,58 @@
 
   //#region FIRE START: then, every frame, leaves send lines, lines light what they reach, everything burns
 
-  // the leaf on the ground closest to the visitor's leaf catches fire first, at the foot of its stem
+  // the leaf on the ground closest to the visitor's leaf catches fire first, at the foot of its stem,
+  // and at the same time the foot of the trunk, the closest to that leaf
   function startFire() {
+    if (fireStopped) return;
     const me = window.leaf && window.leaf.position;
     const landed = fallen.filter(l => l.landed && !l.start);
     if (!landed.length) return;
     const dist = l => me ? Math.hypot(l.x - me.x, l.y - me.y) : 0;
     const first = landed.reduce((a, b) => dist(b) < dist(a) ? b : a);
     const last = first.rows.length - 1;
+    // ASH_LEAVES leaves, at random, burn out as usual; the others keep burning until the spiral has burnt
+    [...fallen].sort(() => Math.random() - 0.5).forEach((l, i) => { l.lasting = i >= ASH_LEAVES; });
     ignite(first, { x: first.rows[last].search(/\S/), r: last });
+    const foot = nearestBark(first.x, first.y);
+    if (foot) igniteTrunk(foot.bark, first.duration);
     fireStarted = true;
+  }
+
+  // the fire stops (sky.js calls it when the humidity is too high): what is on fire turns to ash
+  // at once, what has not caught yet is saved; it does not start again
+  let fireStopped = false;
+  function stopFire() {
+    if (fireStopped) return;
+    fireStopped = true;
+    const now = performance.now();
+    for (const leaf of fallen) leaf.lasting = false;
+    for (const item of burning) {
+      const since = (now - item.start) / 1000;
+      item.times = item.times.map(row => row.map(t => t <= since ? -Infinity : Infinity));
+      item.done = false; // drawn one last time
+    }
   }
 
   // the fire waits until every leaf is on the ground: the falling leaves are the countdown
   let fireWanted = false, fireStarted = false;
   window.addEventListener('firestart', () => { fireWanted = true; }); // sent by burning.js when its likelihood reaches 100%
 
+  // once the spiral has burnt, the leaves still burning go out: each character turns to ash
+  // as long after now as it had caught after the leaf, so they go out in the order they caught
+  function leavesOut(now) {
+    for (const leaf of fallen) {
+      if (!leaf.lasting) continue;
+      leaf.lasting = false;
+      if (leaf.start) leaf.burnS += (now - leaf.start) / 1000;
+    }
+  }
+
   function fire(now) {
+    if (fireStopped) {
+      for (const item of burning) if (!item.done) { item.tick = null; burn(item, now); item.done = true; }
+      return;
+    }
     for (const leaf of fallen) {
       if (leaf.start && !leaf.sent && now - leaf.start > SEND_S * 1000) { leaf.sent = true; spread(leaf); }
     }
@@ -449,6 +490,7 @@
     const waiting = lines.some(l => !l.arrived) || fallen.some(l => l.start && !l.sent);
     if (fireStarted && !waiting) reachLeft();
     spreadRings(now);
+    if (ringsFire && ringsFire.done) leavesOut(now);
     for (const item of burning) if (!item.done) burn(item, now);
   }
   //#endregion
@@ -475,7 +517,7 @@
     }
 
     // at 100%, the fire starts once the last leaf has landed
-    if (fireWanted && !fireStarted && dropped === MAX_LEAVES && fallen.every(l => l.landed)) startFire();
+    if (fireWanted && !fireStarted && !fireStopped && dropped === MAX_LEAVES && fallen.every(l => l.landed)) startFire();
     fire(now);
 
     label.hidden = !!window.burning;
@@ -488,7 +530,7 @@
   //#endregion
 
   // for other scripts: the box of leaves, the current likelihood, starting the fire (pile.startFire()
-  // in the browser console lights it right away, for testing), and for leaf.js: the area to show
-  // around the trunk, a spot to land on and joining the other leaves
-  window.pile = { el, level, startFire, scene, spot, join };
+  // in the browser console lights it right away, for testing) and stopping it, and for leaf.js:
+  // the area to show around the trunk, a spot to land on and joining the other leaves
+  window.pile = { el, level, startFire, stopFire, scene, spot, join };
 })();

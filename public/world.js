@@ -11,7 +11,7 @@ const WORLD_ON = true;
   //#region SETTINGS
   const WORLD_W = 5000;   // world size in world units (the same for every screen)
   const WORLD_H = 5000;
-  const GRID = 250;       // spacing of the guide grid, only there to see the movement
+  const GRID = 250;       // spacing of the guide dots, only there to see the movement
   const KEY_STEP = 60;    // how far one arrow key press moves the camera
   //#endregion
 
@@ -71,7 +71,7 @@ const WORLD_ON = true;
 
   const css = getComputedStyle(document.documentElement);
   const ink = css.getPropertyValue('--ink').trim();
-  const inkSoft = css.getPropertyValue('--ink-soft').trim();
+  const dotFont = `${css.getPropertyValue('--font-size').trim()} ${css.getPropertyValue('--font-mono').trim()}`;
 
   function draw() {
     ctx.clearRect(0, 0, screenW, screenH);
@@ -79,17 +79,16 @@ const WORLD_ON = true;
     ctx.scale(camera.zoom, camera.zoom);
     ctx.translate(-camera.x, -camera.y); // from here on, draw in world coordinates
 
-    // guide grid, only the lines in view
+    // guide dots: a . where the lines of the grid would cross, only those in view
     const left = Math.floor(camera.x / GRID) * GRID, top = Math.floor(camera.y / GRID) * GRID;
     const right = camera.x + screenW / camera.zoom, bottom = camera.y + screenH / camera.zoom;
-    ctx.strokeStyle = inkSoft;
-    ctx.globalAlpha = 0.25;
-    ctx.lineWidth = 1 / camera.zoom;
-    ctx.beginPath();
-    for (let x = left; x <= right; x += GRID) { ctx.moveTo(x, top); ctx.lineTo(x, bottom); }
-    for (let y = top; y <= bottom; y += GRID) { ctx.moveTo(left, y); ctx.lineTo(right, y); }
-    ctx.stroke();
-    ctx.globalAlpha = 1;
+    ctx.fillStyle = ink;
+    ctx.font = dotFont;
+    ctx.textAlign = 'center';
+    const m = ctx.measureText('.'), lift = (m.actualBoundingBoxAscent - m.actualBoundingBoxDescent) / 2; // centres the dot on the crossing
+    for (let x = left; x <= right + GRID; x += GRID) {
+      for (let y = top; y <= bottom + GRID; y += GRID) ctx.fillText('.', x, y + lift);
+    }
 
     // world edge
     ctx.strokeStyle = ink;

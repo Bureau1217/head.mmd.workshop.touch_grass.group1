@@ -4,11 +4,21 @@
 /* ---- settings: change the look of the whole site here ---- */
 :root {
   --font: "Brown Mono LL", Arial, "Helvetica Neue", Helvetica, sans-serif;
-  --font-size: 12px;
+  --font-size: 16px;  /* every character of the page has this size: text and ASCII drawings */
   /* monospaced font for the ASCII drawings; Brown Mono LL is used where it is installed */
   --font-mono: "Brown Mono LL", Menlo, Consolas, "Courier New", monospace;
 
   --paper: #fbfbfa;     /* background */
+
+  /* background gradient (sky.js): four colours from top to bottom, one per fire factor */
+  --sky-1: #cce0f4;  --sky-fire-1: #cce0f4;  /* before the fire, then once it burns */
+  --sky-2: #baff85;  --sky-fire-2: #ff9873;
+  --sky-3: #007346;  --sky-fire-3: #ff1d25;
+  --sky-4: #001e0a;  --sky-fire-4: #e00000;
+  --sky-at-1: 0%;    /* where colour 1 starts fading: grows with humidity (H key) */
+  --sky-at-2: 62%;   /* height of colours 2 and 3 (4 is at the bottom) */
+  --sky-at-3: 88%;
+  --sky-at-4: 100%;  /* where colour 4 stops fading: rises with drought (S key) */
   --ink: #0b0b0b;       /* text */
   --ink-soft: #6a6a66;  /* secondary text */
 
@@ -17,15 +27,16 @@
   --grain-strength: 14;       /* 0–255, how visible the speckles are */
 
   /* forest news panel */
-  --panel-width: 300px;
+  --panel-width: 440px;
   --panel-top: 32px;
-  --panel-left: 28px;  --title-size: 22px;
-  --news-size: 11px;
+  --panel-left: 28px;
+  --title-size: var(--font-size);
+  --news-size: var(--font-size);
   --news-lifetime: 9s;  /* how long a news line stays before it is gone; it fades during the last part */
 
   /* microphone text ("blowing softly" / "blowing steadily") */
   --mic-right: 28px;
-  --mic-size: 16px;
+  --mic-size: var(--font-size);
   --mic-fade: 0.15s;  /* how long the text takes to fade in and out */
 
   color-scheme: light;
@@ -41,13 +52,18 @@ body {
   height: 100%;
 }
 
+/* the sky gradient fills the screen, under the paper grain that grain.js puts on body */
+html {
+  background: linear-gradient(var(--sky-1) var(--sky-at-1), var(--sky-2) var(--sky-at-2), var(--sky-3) var(--sky-at-3), var(--sky-4) var(--sky-at-4));
+}
+
 body {
   margin: 0;
   font-family: var(--font);
   font-size: var(--font-size);
   line-height: 1.5;
   color: var(--ink);
-  background-color: var(--paper);
+  background-color: transparent;  /* lets the sky show through; was var(--paper) */
 }
 
 /* ---- forest news: stays in the top-left corner while the canvas moves ---- */
@@ -64,6 +80,19 @@ body {
   margin: 0 0 12px;
   font-size: var(--title-size);
   font-weight: 500;
+}
+
+/* the dialogue under the title, written line by line by dialog.js */
+.dialog {
+  margin: 0 0 24px;
+}
+
+.dialog:empty {
+  display: none;
+}
+
+.dialog__line {
+  margin: 0;
 }
 
 .news__me {
@@ -121,7 +150,7 @@ body {
   z-index: 5;
   margin: 0;
   font-family: var(--font-mono);
-  font-size: 18px;
+  font-size: var(--font-size);
   line-height: 1.15;
   color: var(--ink);
   white-space: pre;
@@ -146,7 +175,7 @@ body {
 .trunk__bark {
   margin: 0;
   font-family: var(--font-mono);
-  font-size: 16px;
+  font-size: var(--font-size);
   line-height: 1;
   white-space: pre;
 }
@@ -157,7 +186,7 @@ body {
   left: 0;
   overflow: visible;
   font-family: var(--font-mono);
-  font-size: 14px;
+  font-size: var(--font-size);
   fill: currentColor;
 }
 
@@ -177,7 +206,7 @@ body {
   position: absolute;
   margin: 0;
   font-family: var(--font-mono);
-  font-size: 18px;
+  font-size: var(--font-size);
   line-height: 1.15;
   color: var(--ink);
   white-space: pre;
