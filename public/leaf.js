@@ -1,12 +1,11 @@
-// Leaf: an ASCII leaf that falls onto the screen when the page opens, then rests at the bottom
-// until someone blows on it. Each visitor's leaf spawns in one of seven zones around the centre
-// of the world, picked at random (ZONES). The microphone (mic.js) blows through leaf.blow(x, y);
-// the arrow keys are a backup and win while held. From the first blow on, the camera follows it.
-// Two stages: first, blowing pushes the leaf in a random main direction that sways from side to
-// side; STAGE_TWO_AFTER seconds after the page opens, blowing pushes it towards the centre of the
-// world instead, at the same speeds.
-// The leaf starts small and grows to full size from the first blow, finishing as stage two begins
-// (or over LATE_GROW seconds if the first blow comes late).
+// Leaf: an ASCII leaf that falls into the left half of the screen when the page opens, then rests
+// at the bottom until someone blows on it. The microphone (mic.js) blows through leaf.blow(x, y); the
+// arrow keys are a backup and win while held. From the first blow on, the camera follows the leaf.
+// Two stages: first, blowing pushes the leaf the way mic.js says; STAGE_TWO_AFTER seconds after
+// the first blow, blowing pushes it towards the centre of the world instead, at the same speeds.
+// The first time the leaf reaches the trunk, the camera moves back to show the trunk and the leaves
+// around it, and stays there. The leaf can still be blown until it leaves the frame; then nobody
+// controls it any more: it falls back in from the top and lands among the other leaves.
 //
 // Needs world.js (loaded before it). To remove it, delete this file, its <script> line in
 // index.html and the .leaf section in style.css; nothing else depends on it.
@@ -45,6 +44,9 @@
     { name: 'right', x: 1, y: 0 },
     { name: 'top right', x: 1, y: -0.6 },
   ];
+  const MEET = 150;         // px, how close to the trunk the leaf must come for the camera to settle on it
+  const SCENE_MOVE_S = 2;   // seconds the camera takes to move and zoom out to the trunk
+  const SCENE_S = 1.5;      // seconds after that before leaving the frame makes the leaf fall back
   //#endregion
 
   //#region LEAF ELEMENT
@@ -116,6 +118,11 @@
   let t = 0;                  // s since the page opened; decides the stage
   let size = START_SIZE;      // drawn size, grows from START_SIZE to 1
   let growStart = null, growFor = 0; // when growing began (t) and how long it lasts
+  let scene = 0;              // seconds since the camera settled on the trunk (0: not yet)
+  let sceneFrom = null;       // the camera when it started moving to the trunk
+  let landing = null;         // once out of the frame: where it lands among the other leaves
+  let joined = false;         // landed: it is now one of the leaves of pile.js
+  let t = 0;
   const phase = Math.random() * 10;
   const wanderPhase = [Math.random() * 10, Math.random() * 10];
   //#endregion
@@ -132,6 +139,7 @@
   // the blow that acts on the leaf right now; worked out every frame, as in stage two it
   // depends on where the leaf is
   function currentWind() {
+    if (landing) return { x: 0, y: 0 }; // out of the frame: nobody controls it any more
     const { keys, mic } = sources;
     if (keys.x || keys.y) return keys; // arrow keys win while held
     const strength = Math.hypot(mic.x, mic.y); // the microphone gives the strength, the leaf the direction
@@ -173,6 +181,38 @@
   window.addEventListener('blur', () => { held.clear(); blowFromKeys(); });
   //#endregion
 
+  //#region TRUNK: the camera settles on it, then the leaf falls back among the other leaves
+  // has the leaf reached the trunk? (see trunk.js for its shape)
+  function meetsTrunk() {
+    const tr = window.trunk;
+    if (!tr) return false;
+    const cx = s.x + w / 2, cy = s.y + h / 2, half = tr.radius * 1.12;
+    const top = tr.y - half * tr.tilt, bottom = tr.y + half * tr.tilt + tr.depth;
+    return Math.abs(cx - tr.x) < half + MEET && cy > top - MEET && cy < bottom + MEET;
+  }
+
+  // the trunk and the leaves around it (from pile.js), or just the trunk
+  function sceneView() {
+    if (window.pile && window.pile.scene) return window.pile.scene;
+    const tr = window.trunk;
+    return { x: tr.x, y: tr.y + tr.depth / 2, w: tr.radius * 4, h: tr.radius * 3 };
+  }
+
+  function outOfFrame() {
+    const p = toScreen(s.x, s.y), z = camera.zoom;
+    return p.x > window.innerWidth || p.x + w * z < 0 || p.y > window.innerHeight || p.y + h * z < 0;
+  }
+
+  // out of the frame: control is lost, it comes back in from the top of the screen above its landing spot
+  function fallBack() {
+    const tr = window.trunk;
+    landing = window.pile && window.pile.spot ? window.pile.spot() : { x: tr.x, y: tr.y + tr.depth + 300 };
+    s.x = landing.x - w / 2;
+    s.y = camera.y - h;
+    s.vx = s.vy = 0;
+  }
+  //#endregion
+
   //#region MOVEMENT
   function update(dt) {
     t += dt;
@@ -202,9 +242,19 @@
     // smaller around its middle, so the floor is lowered to keep the small leaf on it
     const floor = free ? WORLD_H - h : cam.y + window.innerHeight - h - REST_MARGIN + h * (1 - size) / 2;
     const resting = !free && s.y >= floor - 1;
+    // before the first blow, the floor is the bottom of the (still) screen; when it falls back, its landing spot
+    const floor = landing ? landing.y - h / 2 : scene ? Infinity : free ? WORLD_H - h : cam.y + window.innerHeight - h - REST_MARGIN;
+    const resting = (!free || landing) && s.y >= floor - 1;
+
+    // landed among the other leaves: from now on it is one of them (it burns with them)
+    if (landing && resting && !joined && window.pile && window.pile.join) {
+      joined = true;
+      window.pile.join(ART.split('\n'), s.x + w / 2, s.y + h / 2, s.angle);
+      el.hidden = true;
+    }
 
     let ax = wind.x * BLOW_FORCE;
-    let ay = wind.y * BLOW_FORCE + (free ? FREE_GRAVITY : FALL_GRAVITY);
+    let ay = wind.y * BLOW_FORCE + (free && !landing ? FREE_GRAVITY : FALL_GRAVITY);
     if (!resting) ax += Math.sin(t * 3 + phase) * FLUTTER;
 
     const drag = Math.exp(-AIR_DRAG * dt);
@@ -213,18 +263,43 @@
     s.x += s.vx * dt;
     s.y += s.vy * dt;
 
-    // edges of the world, and the floor while it rests on screen
-    if (s.x < 0) { s.x = 0; s.vx = Math.abs(s.vx) * BOUNCE; }
-    if (s.x > WORLD_W - w) { s.x = WORLD_W - w; s.vx = -Math.abs(s.vx) * BOUNCE; }
-    if (free && s.y < 0) { s.y = 0; s.vy = Math.abs(s.vy) * BOUNCE; }
+    // edges of the world (not once the camera is on the trunk: the leaf must be able to leave the
+    // frame, even where the frame goes past the world), and the floor while it rests on screen
+    if (!scene) {
+      if (s.x < 0) { s.x = 0; s.vx = Math.abs(s.vx) * BOUNCE; }
+      if (s.x > WORLD_W - w) { s.x = WORLD_W - w; s.vx = -Math.abs(s.vx) * BOUNCE; }
+      if (free && s.y < 0) { s.y = 0; s.vy = Math.abs(s.vy) * BOUNCE; }
+    }
     if (s.y > floor) { s.y = floor; s.vy = Math.min(0, s.vy); s.vx *= Math.exp(-6 * dt); }
 
     // tilts with its speed and sways in the air, lies flat when resting
     const target = resting ? 0 : s.vx * 0.12 + Math.sin(t * 2.3 + phase) * 18;
     s.angle += (target - s.angle) * Math.min(1, dt * (resting ? 6 : 3));
 
-    // camera: still on arrival, then eases towards the leaf so it stays in the middle of the screen
-    if (free) {
+    // camera: still on arrival, then eases towards the leaf so it stays in the middle of the screen,
+    // until the leaf reaches the trunk: then it moves back to show the trunk and its leaves, and stays
+    if (free && !scene && meetsTrunk()) {
+      scene = 0.001;
+      // where the move starts: the zoom, and the world point in the middle of the screen
+      sceneFrom = {
+        zoom: camera.zoom,
+        x: camera.x + window.innerWidth / 2 / camera.zoom, // the camera as shown, after world.js kept it in the world
+        y: camera.y + window.innerHeight / 2 / camera.zoom,
+      };
+    }
+    if (scene) {
+      scene += dt;
+      // a move of fixed length that eases in and out and ends exactly on the trunk, then stops:
+      // an exponential ease crept on by fractions of a pixel for seconds, which made the text jitter
+      const view = sceneView();
+      const zoom = Math.min(1, window.innerWidth / view.w, window.innerHeight / view.h);
+      const p = Math.min(1, scene / SCENE_MOVE_S), e = p * p * (3 - 2 * p);
+      camera.zoom = sceneFrom.zoom + (zoom - sceneFrom.zoom) * e;
+      const mid = { x: sceneFrom.x + (view.x - sceneFrom.x) * e, y: sceneFrom.y + (view.y - sceneFrom.y) * e };
+      cam.x = mid.x - window.innerWidth / 2 / camera.zoom;
+      cam.y = mid.y - window.innerHeight / 2 / camera.zoom;
+      if (!landing && scene > SCENE_S && outOfFrame()) fallBack();
+    } else if (free) {
       const k = Math.min(1, dt * CAMERA_EASE);
       cam.x += (s.x + w / 2 - window.innerWidth / 2 / camera.zoom - cam.x) * k;
       cam.y += (s.y + h / 2 - window.innerHeight / 2 / camera.zoom - cam.y) * k;
@@ -236,6 +311,9 @@
   function render() {
     const p = toScreen(s.x, s.y);
     el.style.transform = `translate(${p.x}px, ${p.y}px) scale(${camera.zoom * size}) rotate(${s.angle}deg)`;
+    // placed by its centre, so it stays in the right place when the camera zooms out
+    const c = toScreen(s.x + w / 2, s.y + h / 2);
+    el.style.transform = `translate(${c.x - w / 2}px, ${c.y - h / 2}px) scale(${camera.zoom}) rotate(${s.angle}deg)`;
   }
 
   let last = performance.now();

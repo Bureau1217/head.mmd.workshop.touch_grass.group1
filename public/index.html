@@ -6,18 +6,26 @@
   <title>Touch Grass</title>
   <link rel="stylesheet" href="style.css">
   <script src="grain.js" defer></script>
+  <script src="sky.js" defer></script>
   <script src="world.js" defer></script>
   <script src="trunk.js" defer></script>
+  <script src="pile.js" defer></script>
   <script src="leaf.js" defer></script>
   <script src="/socket.io/socket.io.js" defer></script>
   <script src="main.js" defer></script>
   <script src="mic.js" defer></script>
+  <script src="dialog.js" defer></script>
 </head>
 <body>
   <aside class="news" aria-label="Forest news">
-    <h1 class="news__title">Forest news</h1>
-    <p class="news__user">You are <span id="userName">…</span></p>
-    <ul class="news__log" id="log" aria-live="polite"></ul>
+    <h1 class="news__title">Memory of Trees</h1>
+    <div class="dialog" id="dialog" aria-live="polite"></div>
+    <!-- hidden for now; still there because main.js writes in it -->
+    <div hidden>
+      <h2 class="news__title">Forest news</h2>
+      <p class="news__user">You are <span id="userName">…</span></p>
+      <ul class="news__log" id="log" aria-live="polite"></ul>
+    </div>
   </aside>
   <p class="mic" id="micState" aria-live="polite"></p>
 </body>
