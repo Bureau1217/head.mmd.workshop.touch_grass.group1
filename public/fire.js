@@ -8,13 +8,19 @@
 
 (() => {
   //#region STEP 1 · rate of burning, in characters lost per second
-  //   rate = BASE × time × near × wind × device × water
+  //   rate = BASE × time × near × wind × dry × device × water
   //   time   1 → 3    grows by 0.1 for every minute on the page (capped at 20 minutes)
   //   near   1 or 1.5 1.5 when a satellite saw a fire within NEAR_KM of the visitor in the last 7 days (GWIS)
   //   wind   1 → 2    the wind where the visitor is: 1 when still, 2 at WIND_MAX_KMH or more (Open-Meteo)
+  //   dry    1 → 1.5  humidity under HUMID_MID % speeds the fire up: 1.5 at DRY % or less (Open-Meteo)
   //   device 1 → 2    how hard the device is working, measured from the time between animation frames
-  //   water  0.2 → 1  water drops it to 0.2, and it comes back to 1 over WATER_S seconds
-  const BASE = 2, NEAR_KM = 50, WATER_S = 30, WIND_MAX_KMH = 50;
+  //   water  0.2 → 1  water drops it to 0.2, and it comes back to 1 over WATER_S seconds;
+  //                   humidity over HUMID_MID % works as water too: 1 at HUMID_MID %, 0.2 at 100% (the wetter of the two counts)
+  const BASE = 2, NEAR_KM = 50, WATER_S = 30, WIND_MAX_KMH = 50, HUMID_MID = 50, DRY = 20;
+  const clamp01 = x => Math.min(1, Math.max(0, x));
+  const humidityNow = () => wind.atUser ? wind.atUser.humidity : null; // percent, null while unknown
+  const dryFactor = () => humidityNow() === null ? 1 : 1 + 0.5 * clamp01((HUMID_MID - humidityNow()) / (HUMID_MID - DRY));
+  const humidWater = () => humidityNow() === null ? 1 : 1 - 0.8 * clamp01((humidityNow() - HUMID_MID) / (100 - HUMID_MID));
   const opened = performance.now();
   const seconds = () => performance.now() / 1000;
   let lastWater = -Infinity;   // seconds when water was last added, by anyone
@@ -30,17 +36,21 @@
     const near = nearestKm !== null && nearestKm <= NEAR_KM ? 1.5 : 1;
     const windF = wind.atUser ? 1 + Math.min(1, wind.atUser.speedKmh / WIND_MAX_KMH) : 1;
     const device = deviceFactor();
-    const water = 0.2 + 0.8 * Math.min(1, (seconds() - lastWater) / WATER_S);
-    return { time, near, wind: windF, device, water, rate: BASE * time * near * windF * device * water };
+    const dry = dryFactor();
+    const drops = 0.2 + 0.8 * Math.min(1, (seconds() - lastWater) / WATER_S), humid = humidWater();
+    const water = Math.min(drops, humid);
+    const waterFrom = water === 1 ? 'none' : drops <= humid ? 'water' : 'humidity';
+    return { time, near, wind: windF, dry, device, water, waterFrom, rate: BASE * time * near * windF * dry * device * water };
   }
   //#endregion
 
   //#region STEP 2 · likelihood of a fire starting, in percent
   // Only grows while nothing is burning. At 100% a fire starts and it goes back to 0.
-  //   per minute = P_BASE × near × fires × toward × danger × device × tab
+  //   per minute = P_BASE × near × fires × toward × dry × danger × device × tab
   //   near    1 → 3    3 with a fire right next to the visitor, falling to 1 at 150 km or more (GWIS hotspots, 7 days)
   //   fires   1 → 2    how many hotspots are within FIRES_KM: 1 with none, 2 with FIRES_MAX or more
   //   toward  1 or 1.5 1.5 when the wind pushes the nearest fire toward the visitor
+  //   dry     1 → 1.5  same as the rate of burning: humidity under HUMID_MID % makes a fire start sooner
   //   danger  0.5 → 6  today's EFFIS Fire Danger class at the visitor's location (from the Fire Weather Index)
   //   device  1 → 2    same measure as the rate of burning
   //   tab     1 → 3    grows with the time the page has been open (capped at 30 minutes), ×2 while the tab is in the background
@@ -57,11 +67,12 @@
     const near = nearestKm === null ? 1 : 1 + 2 * Math.max(0, 1 - nearestKm / 150);
     const count = 1 + Math.min(1, (fires.count || 0) / FIRES_MAX);
     const toward = spread() && spread().towardUser ? 1.5 : 1;
+    const dry = dryFactor();
     const danger = fwi === null ? 1 : dangerOf(fwi)[2];
     const device = deviceFactor();
     const minutes = (performance.now() - opened) / 60000;
     const tab = (1 + Math.min(minutes, 30) / 15) * (document.hidden ? 2 : 1);
-    return { near, fires: count, toward, danger, device, tab, perMin: P_BASE * near * count * toward * danger * device * tab };
+    return { near, fires: count, toward, dry, danger, device, tab, perMin: P_BASE * near * count * toward * dry * danger * device * tab };
   }
   //#endregion
 
@@ -121,12 +132,12 @@
     // -9999 means no data there (the sea, some cities), as in wildfire.js
     return m && +m[1] >= 0 ? +m[1] : null;
   }
-  // wind at 10 m for each point: where it comes from (0 = from the north) and its speed
+  // wind at 10 m for each point: where it comes from (0 = from the north) and its speed, and the relative humidity at 2 m
   async function findWind(points) {
     const url = `https://api.open-meteo.com/v1/forecast?latitude=${points.map(p => p.lat).join(',')}` +
-      `&longitude=${points.map(p => p.lon).join(',')}&current=wind_speed_10m,wind_direction_10m`;
+      `&longitude=${points.map(p => p.lon).join(',')}&current=wind_speed_10m,wind_direction_10m,relative_humidity_2m`;
     const data = await (await fetch(url)).json();
-    return [].concat(data).map(d => ({ fromDeg: d.current.wind_direction_10m, speedKmh: d.current.wind_speed_10m }));
+    return [].concat(data).map(d => ({ fromDeg: d.current.wind_direction_10m, speedKmh: d.current.wind_speed_10m, humidity: d.current.relative_humidity_2m }));
   }
 
   // what the API calls have given so far
@@ -210,7 +221,7 @@
       // 1. characters lost per second
       burnRate: {
         charactersPerSecond: round(f.rate),
-        base: BASE, time: round(f.time), near: f.near, wind: round(f.wind), device: round(f.device), water: round(f.water),
+        base: BASE, time: round(f.time), near: f.near, wind: round(f.wind), dry: round(f.dry), device: round(f.device), water: round(f.water), waterFrom: f.waterFrom,
       },
       // 2. how often a fire starts: what the likelihood gains a minute, and when it reaches 100% at this pace
       frequency: {
@@ -221,7 +232,7 @@
       // 3. chance of a fire starting
       likelihood: {
         percent: round(likelihood),
-        base: P_BASE, near: round(p.near), fires: round(p.fires), toward: p.toward, danger: p.danger, device: round(p.device), tab: round(p.tab),
+        base: P_BASE, near: round(p.near), fires: round(p.fires), toward: p.toward, dry: round(p.dry), danger: p.danger, device: round(p.device), tab: round(p.tab),
       },
       // 4. satellite hotspots around the visitor
       firesNearby: { status: fires.status, count: fires.count, withinKm: FIRES_KM, days: 7 },
@@ -240,6 +251,13 @@
       wind: wind.atUser ? {
         from: compass(wind.atUser.fromDeg), fromDeg: wind.atUser.fromDeg, speedKmh: wind.atUser.speedKmh,
         blowingTo: compass((wind.atUser.fromDeg + 180) % 360),
+      } : { status: wind.status },
+      // 9. how damp the air is where the visitor is
+      humidity: wind.atUser ? {
+        percent: wind.atUser.humidity,
+        air: wind.atUser.humidity <= DRY ? 'very dry' : wind.atUser.humidity < HUMID_MID ? 'dry' : wind.atUser.humidity === HUMID_MID ? 'neutral' : wind.atUser.humidity < 80 ? 'humid' : 'very humid',
+        // under HUMID_MID % it speeds the fire up, over it it works as water on the fire
+        dryFactor: round(dryFactor()), asWater: round(humidWater()),
       } : { status: wind.status },
       // as Open-Meteo gave it: here and at the nearest fire
       windRaw: { ...wind },

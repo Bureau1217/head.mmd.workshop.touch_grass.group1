@@ -50,7 +50,7 @@ window.addEventListener('firedata', ({ detail: d }) => {
   const r = d.burnRate, c = d.likelihood;
   document.getElementById('fireRate').innerHTML =
     `<b>${d.burning ? 'Burning' : 'Would burn'} ${r.charactersPerSecond.toFixed(1)} characters/second</b><br>` +
-    `${r.base} × time ${r.time} × near ${r.near} × wind ${r.wind} × device ${r.device} × water ${r.water}<br>` +
+    `${r.base} × time ${r.time} × near ${r.near} × wind ${r.wind} × dry ${r.dry} × device ${r.device} × water ${r.water}<br>` +
     `<b>Fire likelihood ${Math.floor(c.percent)}%</b> ${d.burning ? '· paused while burning' : `· +${d.frequency.percentPerMinute.toFixed(1)}% a minute`}`;
 });
 

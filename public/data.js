@@ -141,6 +141,7 @@ window.addEventListener('firedata', ({ detail: d }) => {
     ['closest hotspot', statusOf(nf) || `${nf.lat}, ${nf.lon} · seen ${nf.seenAt || '—'}`],
     ['GWIS Fire Weather Index', fd.fwi === null ? fd.status : fd.fwi],
     ['Open-Meteo wind here', wa.atUser ? `from ${wa.atUser.fromDeg}° · ${wa.atUser.speedKmh} km/h` : wa.status],
+    ['Open-Meteo humidity here', wa.atUser ? `${wa.atUser.humidity}%` : wa.status],
     ['Open-Meteo wind at the fire', wa.atFire ? `from ${wa.atFire.fromDeg}° · ${wa.atFire.speedKmh} km/h` : nf.status ? '—' : wa.status],
   ]);
 
@@ -155,6 +156,17 @@ window.addEventListener('firedata', ({ detail: d }) => {
     ['6 · nearest fire', statusOf(nf) || `${fmt(nf.distanceKm)} km to the ${nf.side} (${nf.bearingDeg}°)`],
     ['7 · its direction', statusOf(dir) || `spreading to the ${dir.heading} (${dir.headingDeg}°)${dir.towardUser ? ' · toward you' : ' · not toward you'}`],
     ['8 · wind', statusOf(w) || `from the ${w.from}, blowing to the ${w.blowingTo} · ${w.speedKmh} km/h`],
+    ['9 · humidity', statusOf(d.humidity) || `${d.humidity.percent}% · ${d.humidity.air} air`],
+  ]);
+
+  // humidity: under 50% it speeds the fire up, over 50% it works as water on the fire
+  const hu = d.humidity;
+  total('humidityTotal', statusOf(hu) ? '—' : `${hu.percent}%`, statusOf(hu) || `relative humidity · ${hu.air} air`);
+  pairs('humidity', statusOf(hu) ? [] : [
+    ['effect', hu.dryFactor > 1 ? 'dry: the fire burns faster and starts sooner' : hu.asWater < 1 ? 'damp: it works as water on the fire' : 'none'],
+    ['× dry', `${hu.dryFactor} · on the burn rate and the likelihood`],
+    ['as water', `${hu.asWater} · on the burn rate${r.waterFrom === 'water' ? ' (real water is wetter right now)' : ''}`],
+    ['scale', '20% or less: dry ×1.5 · 50%: no effect · 100%: water ×0.2'],
   ]);
 
   const near = nf.distanceKm === undefined ? nf.status : `fire ${fmt(nf.distanceKm)} km away`;
@@ -164,8 +176,10 @@ window.addEventListener('firedata', ({ detail: d }) => {
     ['× time', `${r.time} · ${duration(i.secondsOnPage * 1000)} on the page`],
     ['× near', `${r.near} · ${near}`],
     ['× wind', `${r.wind} · ${statusOf(w) || `${w.speedKmh} km/h`}`],
+    ['× dry', `${r.dry} · ${statusOf(d.humidity) || `${d.humidity.percent}% humidity`}`],
     ['× device', `${r.device} · ${i.fps} fps`],
-    ['× water', `${r.water} · ${i.secondsSinceWater === null ? 'no water yet' : `water ${duration(i.secondsSinceWater * 1000)} ago`}`],
+    ['× water', `${r.water} · ${r.waterFrom === 'humidity' ? `damp air, ${d.humidity.percent}% humidity`
+      : i.secondsSinceWater === null ? 'no water yet' : `water ${duration(i.secondsSinceWater * 1000)} ago`}`],
   ]);
   total('chanceTotal', `${Math.floor(c.percent)}%`, d.burning ? 'paused while burning'
     : `+${q.percentPerMinute.toFixed(1)}% a minute · next fire in ${duration(q.minutesToNextFire * 60000)}`);
@@ -173,6 +187,7 @@ window.addEventListener('firedata', ({ detail: d }) => {
     ['base', c.base],
     ['× near', c.near],
     ['× fires', `${c.fires} · ${dl.count === null ? dl.status : `${fmt(dl.count)} nearby`}`],
+    ['× dry', `${c.dry} · ${statusOf(hu) || `${hu.percent}% humidity`}`],
     ['× toward', `${c.toward} · ${statusOf(dir) || (dir.towardUser ? 'the nearest fire is coming your way' : 'not coming your way')}`],
     ['× danger', `${c.danger} · ${fd.class || 'unknown'}`],
     ['× device', c.device],
