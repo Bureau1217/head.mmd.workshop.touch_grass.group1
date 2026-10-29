@@ -27,6 +27,11 @@
   --rule: #e2e2de;      /* thin lines between rows */
   --mono: ui-monospace, Menlo, Consolas, monospace;  /* the live log */
 
+  /* microphone text ("blowing softly" / "blowing steadily") */
+  --mic-right: 28px;
+  --mic-size: 16px;
+  --mic-fade: 0.15s;  /* how long the text takes to fade in and out */
+
   color-scheme: light;
 }
 
@@ -97,6 +102,22 @@ body {
 .news__log li {
   overflow-wrap: anywhere;
   animation: news-fade var(--news-lifetime) linear forwards;
+}
+
+/* ---- microphone: how the visitor is blowing, fixed on the right, written by mic.js ---- */
+.mic {
+  position: fixed;
+  top: var(--panel-top);
+  right: max(var(--mic-right), env(safe-area-inset-right, 0px));
+  z-index: 10;
+  margin: 0;
+  font-size: var(--mic-size);
+  text-align: right;
+  transition: opacity var(--mic-fade) ease;
+}
+
+.mic--hidden {
+  opacity: 0;
 }
 
 /* ---- world: the canvas bigger than the screen, drawn by world.js behind everything else ---- */
