@@ -1,5 +1,5 @@
-// World: a canvas bigger than the screen. Each visitor sees part of it and can move around
-// with the arrow keys. See world-steps.md for the plan.
+// World: a canvas bigger than the screen. Each visitor sees part of it; the camera follows the
+// leaf (leaf.js), which also owns the arrow keys. See world-steps.md for the plan.
 //
 // To switch it off, set WORLD_ON to false. To remove it completely, delete this file and its
 // <script> line in index.html; nothing else depends on it.
@@ -12,7 +12,6 @@ const WORLD_ON = true;
   const WORLD_W = 5000;   // world size in world units (the same for every screen)
   const WORLD_H = 5000;
   const GRID = 250;       // spacing of the guide grid, only there to see the movement
-  const KEY_STEP = 60;    // how far one arrow key press moves the camera
   //#endregion
 
   //#region CANVAS: fills the screen behind the news panel, sharp on high-density screens
@@ -49,15 +48,6 @@ const WORLD_ON = true;
     camera.y = Math.min(Math.max(0, camera.y + dy / camera.zoom), Math.max(0, WORLD_H - viewH));
     requestDraw();
   }
-  //#endregion
-
-  //#region MOVING AROUND: arrow keys
-  window.addEventListener('keydown', e => {
-    const step = { ArrowLeft: [-KEY_STEP, 0], ArrowRight: [KEY_STEP, 0], ArrowUp: [0, -KEY_STEP], ArrowDown: [0, KEY_STEP] }[e.key];
-    if (!step) return;
-    e.preventDefault();
-    moveCamera(...step);
-  });
   //#endregion
 
   //#region DRAWING: only when something changed, at most once per frame

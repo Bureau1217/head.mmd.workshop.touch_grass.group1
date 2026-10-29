@@ -70,12 +70,6 @@ body {
   font-weight: 500;
 }
 
-.news__me {
-  margin: 0 0 14px;
-  font-size: var(--news-size);
-  font-variant-numeric: tabular-nums;
-}
-
 /* rate of burning and likelihood of a fire, filled in every second by main.js */
 .news__fire {
   margin: 0 0 14px;
@@ -199,7 +193,7 @@ body {
   white-space: pre;
 }
 
-/* the simulated likelihood of a fire, until burning.js shows the real one */
+/* the likelihood of a fire, written by pile.js (simulated when fire.js isn't on the page) */
 .pile__level {
   position: fixed;
   right: 28px;

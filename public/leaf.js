@@ -90,7 +90,9 @@
   }
   const ARROWS = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'];
   window.addEventListener('keydown', e => {
-    if (!ARROWS.includes(e.key) || held.has(e.key)) return;
+    if (!ARROWS.includes(e.key)) return;
+    e.preventDefault(); // the page itself never scrolls
+    if (held.has(e.key)) return;
     held.add(e.key);
     blowFromKeys();
   });

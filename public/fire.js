@@ -1,7 +1,6 @@
 // Fire: the rate of burning and the likelihood of a fire starting, taken from health-of-trees'
-// burning-memory.html. Nothing burns on screen yet; every second the numbers are written to the
-// browser console as JSON, `fireData` holds the latest ones, and a 'firedata' event on window carries them
-// (data.html shows them).
+// burning-memory.html. Nothing burns on screen yet; every second `fireData` holds the latest numbers
+// and a 'firedata' event on window carries them (data.html shows them; type fireData in the console to see them).
 //
 // Other scripts can call fire.water() when water is added here, and hear 'firestart' on window
 // when the likelihood reaches 100%. The likelihood is shared by everyone: the server grows it from
@@ -190,7 +189,7 @@
   });
   //#endregion
 
-  //#region EVERY SECOND: log everything as JSON
+  //#region EVERY SECOND: everything in fireData and the 'firedata' event
   // a timer rather than the animation, so it keeps counting when the visitor clicks away from the tab
   const round = (n, d = 2) => Math.round(n * 10 ** d) / 10 ** d;
   setInterval(() => {
@@ -256,7 +255,6 @@
         tabHidden: document.hidden,
       },
     };
-    console.log(JSON.stringify(data));
     window.dispatchEvent(new CustomEvent('firedata', { detail: data }));
   }, 1000);
   //#endregion
