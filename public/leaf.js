@@ -26,7 +26,7 @@
   const STAGE_TWO_AFTER = 30; // s after the first blow, blowing starts pushing the leaf to the centre
   const ARRIVE_RADIUS = 300;  // px, in stage two the push eases off this close to the centre, so it settles there
   const MEET = 150;         // px, how close to the trunk the leaf must come for the camera to settle on it
-  const SCENE_EASE = 1.5;   // how fast the camera moves and zooms out to the trunk
+  const SCENE_MOVE_S = 2;   // seconds the camera takes to move and zoom out to the trunk
   const SCENE_S = 1.5;      // seconds after that before leaving the frame makes the leaf fall back
   //#endregion
 
@@ -61,6 +61,7 @@
   let freeTime = 0;           // s since the first blow; decides the stage
   let wind = { x: 0, y: 0 };  // current blow, each part from -1 to 1
   let scene = 0;              // seconds since the camera settled on the trunk (0: not yet)
+  let sceneFrom = null;       // the camera when it started moving to the trunk
   let landing = null;         // once out of the frame: where it lands among the other leaves
   let joined = false;         // landed: it is now one of the leaves of pile.js
   let t = 0;
@@ -194,18 +195,26 @@
 
     // camera: still on arrival, then eases towards the leaf so it stays in the middle of the screen,
     // until the leaf reaches the trunk: then it moves back to show the trunk and its leaves, and stays
-    if (free && !scene && meetsTrunk()) scene = 0.001;
+    if (free && !scene && meetsTrunk()) {
+      scene = 0.001;
+      // where the move starts: the zoom, and the world point in the middle of the screen
+      sceneFrom = {
+        zoom: camera.zoom,
+        x: camera.x + window.innerWidth / 2 / camera.zoom, // the camera as shown, after world.js kept it in the world
+        y: camera.y + window.innerHeight / 2 / camera.zoom,
+      };
+    }
     if (scene) {
       scene += dt;
-      const view = sceneView(), k = Math.min(1, dt * SCENE_EASE);
+      // a move of fixed length that eases in and out and ends exactly on the trunk, then stops:
+      // an exponential ease crept on by fractions of a pixel for seconds, which made the text jitter
+      const view = sceneView();
       const zoom = Math.min(1, window.innerWidth / view.w, window.innerHeight / view.h);
-      camera.zoom += (zoom - camera.zoom) * k;
-      cam.x += (view.x - window.innerWidth / 2 / camera.zoom - cam.x) * k;
-      cam.y += (view.y - window.innerHeight / 2 / camera.zoom - cam.y) * k;
-      // once there, it stops exactly: endless tiny moves made the spiral text shimmer
-      if (Math.abs(zoom - camera.zoom) < 0.0005) camera.zoom = zoom;
-      const goal = { x: view.x - window.innerWidth / 2 / camera.zoom, y: view.y - window.innerHeight / 2 / camera.zoom };
-      if (Math.abs(goal.x - cam.x) < 0.2 && Math.abs(goal.y - cam.y) < 0.2) { cam.x = goal.x; cam.y = goal.y; }
+      const p = Math.min(1, scene / SCENE_MOVE_S), e = p * p * (3 - 2 * p);
+      camera.zoom = sceneFrom.zoom + (zoom - sceneFrom.zoom) * e;
+      const mid = { x: sceneFrom.x + (view.x - sceneFrom.x) * e, y: sceneFrom.y + (view.y - sceneFrom.y) * e };
+      cam.x = mid.x - window.innerWidth / 2 / camera.zoom;
+      cam.y = mid.y - window.innerHeight / 2 / camera.zoom;
       if (!landing && scene > SCENE_S && outOfFrame()) fallBack();
     } else if (free) {
       const k = Math.min(1, dt * CAMERA_EASE);
