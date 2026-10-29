@@ -80,10 +80,8 @@ function note(kind, info = {}) {
 
 // ---- likelihood of a fire starting, in percent: one for the whole forest, grown every second ----
 // Each visitor online adds to it. At 100% a fire starts for everyone and it goes back to 0.
-//   per minute = Σ over the visitors online of  P_BASE × time × humid
+//   per minute = Σ over the visitors online of  P_BASE × time
 //   time   1 → 3      grows with the time the visitor has been on the platform (capped at 30 minutes)
-//   humid  1.5 → 0.5  the humidity where the visitor is (sent by fire.js): 50% has no effect, every point
-//                     under it starts the fire 1% sooner (0% = ×1.5), every point over it 1% later (100% = ×0.5)
 //
 // When nobody is online, the forest calms down: it goes down by P_DECAY a minute until 0, and goes up
 // again from where it is when someone comes back.
@@ -92,7 +90,7 @@ function note(kind, info = {}) {
 //
 // To test alone, open the site with ?solo: that visitor gets a likelihood of their own, counting only
 // them, and is left out of everyone else's (sent to the room 'solo:<id>', data.html?solo joins it too).
-const P_BASE = 2, HUMID_MID = 50, P_DECAY = 1; // P_DECAY: % lost a minute with nobody online (100% → 0 in 100 min)
+const P_BASE = 2, P_DECAY = 1; // P_DECAY: % lost a minute with nobody online (100% → 0 in 100 min)
 const LIKELIHOOD = process.env.LIKELIHOOD_FILE || path.join(path.dirname(MEMORY), 'likelihood.txt');
 let likelihood = 0;
 if (fs.existsSync(LIKELIHOOD)) {
@@ -113,16 +111,14 @@ function visitorFactors(now, keep) {
   const byId = new Map(); // a visitor with several tabs counts once, from their first tab
   for (const s of io.of('/').sockets.values()) {
     if (!s.data.id || !keep(s)) continue;
-    const v = byId.get(s.data.id) || { since: s.data.since, humidity: null };
+    const v = byId.get(s.data.id) || { since: s.data.since };
     v.since = Math.min(v.since, s.data.since);
-    if (s.data.humidity !== undefined) v.humidity = s.data.humidity;
     byId.set(s.data.id, v);
   }
-  return [...byId].map(([id, { since, humidity }]) => {
+  return [...byId].map(([id, { since }]) => {
     const minutes = (now - since) / 60000;
     const time = 1 + Math.min(minutes, 30) / 15;
-    const humid = humidity === null ? 1 : 1 + (HUMID_MID - humidity) / 100;
-    return { id, minutes, humidity, time, humid, perMin: P_BASE * time * humid };
+    return { id, minutes, time, perMin: P_BASE * time };
   });
 }
 // grows a likelihood by what `visitors` add in `minutes` (or lowers it when there are none), and what to send to the browsers
@@ -227,14 +223,6 @@ io.on('connection', socket => {
     record(event);
     io.emit('line', event);
     note('line', { id, words: wordsIn(text), text });
-  });
-
-  // the relative humidity where the visitor is, in percent (Open-Meteo, from fire.js)
-  socket.on('humidity', h => {
-    if (!socket.data.id || !Number.isFinite(h) || h < 0 || h > 100 || !allowed(socket, 'humidity', 2)) return;
-    if (socket.data.humidity === h) return;
-    socket.data.humidity = h;
-    note('humidity', { id: socket.data.id, percent: h });
   });
 
   // a word burned away on someone's screen: it leaves the memory

@@ -1,20 +1,5 @@
-//#region USER IDENTIFICATION
-// ---- identity: the same browser keeps the same ID, so a visitor is recognised when they come back ----
-//generate the user id
-const ID = /^[a-z0-9]{6,32}$/;
-let userID = null;
-try { userID = localStorage.getItem('touch-grass-id'); } catch {}
-if (!userID || !ID.test(userID)) {
-  userID = Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 8);
-  try { localStorage.setItem('touch-grass-id', userID); } catch {}
-}
-
-
-// turns an ID into a readable name such as User482913 (the same ID always gives the same name)
-const nameOf = id => 'User' + (100000 + Math.abs([...id].reduce((h, c) => (h * 31 + c.charCodeAt(0)) | 0, 7)) % 900000);
-const user = nameOf(userID);
-document.getElementById('userName').textContent = user;
-//#endregion
+// ---- the visitor's name (userID, userName and nameOf come from userdata.js) ----
+document.getElementById('userName').textContent = userName;
 
 // ---- forest news: newest first, each line fades out (timing in style.css) ----
 let maxHistory = Infinity; // most lines shown; the server sends its MAX_HISTORY on welcome
@@ -38,7 +23,7 @@ function addNews(message, age = 0) {
 const ACTION_NEWS = { water: 'brought water', fire: 'started a fire', help: 'called for help' };
 function showEvent({ type, id, isNew, time, text, action }) {
   const age = Math.max(0, Date.now() - clockOffset - time);
-  const name = id === userID ? user : nameOf(id);
+  const name = id ? nameOf(id) : ''; // a fire starting has no visitor
   if (type === 'joined') addNews(isNew ? `${name} joined the forest` : `${name} came back`, age);
   if (type === 'left') addNews(`${name} left the forest`, age);
   if (type === 'line') addNews(`${name}: ${text}`, age);
@@ -59,21 +44,16 @@ window.addEventListener('firedata', ({ detail: d }) => {
 // Other scripts read it with forest.memory, and hear about changes through window events:
 //   'memoryline' (detail: { id, text }), 'memoryburn' (detail: { owner, word }), 'forestaction' (detail: event),
 //   'forestlikelihood' (detail: the shared likelihood of a fire, every second, see server.js)
-// and change it with forest.burn(owner, word), forest.send('water' | 'fire' | 'help') and forest.humidity(percent).
-const forest = window.forest = { memory: [], burn: () => {}, send: () => {}, humidity: () => {} };
+// and change it with forest.burn(owner, word) and forest.send('water' | 'fire' | 'help').
+const forest = window.forest = { memory: [], burn: () => {}, send: () => {} };
 const announce = (name, detail) => window.dispatchEvent(new CustomEvent(name, { detail }));
 
-// where the visitor is, for their line of memory: rounded coordinates and the city of their time zone
-const tzCity = () => { try { return (Intl.DateTimeFormat().resolvedOptions().timeZone || '').split('/').pop().replace(/_/g, ' '); } catch { return ''; } };
-function findPlace() {
-  return new Promise(done => {
-    if (!navigator.geolocation) return done({ city: tzCity() });
-    navigator.geolocation.getCurrentPosition(
-      // rounded to about 1 km before it leaves the browser
-      pos => done({ lat: +pos.coords.latitude.toFixed(2), lon: +pos.coords.longitude.toFixed(2), city: tzCity() }),
-      () => done({ city: tzCity() }),
-      { maximumAge: 3600000, timeout: 15000 });
-  });
+// where the visitor is, for their line of memory (userdata.js): coordinates already rounded to about 1 km,
+// and the city of a test place (?at=); nothing when no location was found
+async function findPlace() {
+  const found = await locationFound;
+  const { lat, lon, city } = userLocation;
+  return found ? { lat, lon, city } : {};
 }
 //#endregion
 
@@ -83,8 +63,6 @@ const socket = io();
 
 forest.burn = (owner, word) => socket.emit('burn', { owner, word });
 forest.send = type => socket.emit('action', type);
-let humidity = null; // sent again after a reconnect
-forest.humidity = h => { humidity = h; socket.emit('humidity', h); };
 let placeSent = false;
 
 // ?solo: for testing, a likelihood of a fire that counts only this visitor (see server.js)
@@ -95,9 +73,8 @@ socket.on('welcome', ({ isNew, history, now, maxHistory: max, memory, hasLine })
   maxHistory = max;
   log.replaceChildren(); // start from the server's history, so a reconnect doesn't show lines twice
   history.forEach(showEvent);
-  addNews(isNew ? `${user} joined the forest` : `${user} came back`);
+  addNews(isNew ? `${userName} joined the forest` : `${userName} came back`);
   forest.memory = memory;
-  if (humidity !== null) socket.emit('humidity', humidity);
   // first visit: the server writes this visitor's line of memory from where they are
   if (!hasLine && !placeSent) { placeSent = true; findPlace().then(place => socket.emit('place', place)); }
 });

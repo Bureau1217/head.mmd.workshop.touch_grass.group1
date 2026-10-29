@@ -2,10 +2,7 @@
 // Every log entry is also written to the browser console, and `forestData` holds the latest snapshot.
 // This page only watches: it doesn't say hello, so it isn't counted as a visitor.
 
-// the same ID and name as on the forest page (see main.js)
-let userID = null;
-try { userID = localStorage.getItem('touch-grass-id'); } catch {}
-const nameOf = id => 'User' + (100000 + Math.abs([...id].reduce((h, c) => (h * 31 + c.charCodeAt(0)) | 0, 7)) % 900000);
+// the same ID and name as on the forest page (userID, userName and nameOf come from userdata.js)
 const who = id => id === userID ? `${nameOf(id)} (you)` : nameOf(id);
 
 const $ = id => document.getElementById(id);
@@ -46,11 +43,11 @@ function showAmounts() {
 
 //#region YOU: this browser, and what the server has from it
 function showYou() {
-  const line = userID && data.memory.find(l => l.id === userID);
+  const line = data.memory.find(l => l.id === userID);
   const rows = [
-    ['name', userID ? nameOf(userID) : 'none yet: open the forest page once'],
-    ['id', userID || '—'],
-    ['in the forest now', userID && data.online.includes(userID) ? 'yes' : 'no'],
+    ['name', userName],
+    ['id', userID],
+    ['in the forest now', data.online.includes(userID) ? 'yes' : 'no'],
     ['your line of memory', line ? line.text : 'none yet'],
     ['its words', line ? wordsIn(line.text) : 0],
     ['time zone', Intl.DateTimeFormat().resolvedOptions().timeZone],
@@ -82,7 +79,7 @@ function showMemory() {
 }
 //#endregion
 
-//#region TEST PLACES: the calculation as if this browser were somewhere else (fire.js reads ?at=lat,lon,City)
+//#region TEST PLACES: the calculation as if this browser were somewhere else (userdata.js reads ?at=lat,lon,City)
 const PLACES = [
   ['Lisbon', 38.72, -9.14], ['Athens', 37.98, 23.73], ['Zurich', 47.37, 8.54],
   ['Los Angeles', 34.05, -118.24], ['Edmonton', 53.55, -113.49], ['Cuiabá', -15.6, -56.1],
@@ -129,20 +126,20 @@ function showLookups() {
   $('lookups').replaceChildren(...rows);
 }
 
-const round2 = n => Math.round(n * 100) / 100;
 const statusOf = o => o.status || null; // a block without data carries only its status
 window.addEventListener('firedata', ({ detail: d }) => {
   const u = d.userLocation, nf = d.nearestFire, dir = d.nearestFireDirection, w = d.wind, fd = d.fireDanger;
   // left: what each API call gave, as it came
   const dl = d.firesNearby, wa = d.windRaw;
   pairs('api', [
-    ['position', u.status === 'shared' || u.status === 'test' ? `${u.lat}, ${u.lon}${u.status === 'test' ? ' · test place' : ''}` : u.status],
-    ['time zone city', u.city || '—'],
+    ['position', u.lat !== null ? `${u.lat}, ${u.lon}${u.status === 'test' ? ' · test place' : u.status === 'ip' ? ' · from the IP address' : ''}` : u.status],
+    ['country', u.country || '—'],
     ['GWIS hotspots, 7 days', dl.count === null ? dl.status : `${fmt(dl.count)} within ${dl.withinKm} km`],
     ['closest hotspot', statusOf(nf) || `${nf.lat}, ${nf.lon} · seen ${nf.seenAt || '—'}`],
-    ['GWIS Fire Weather Index', fd.fwi === null ? fd.status : fd.fwi],
+    ['GWIS fire danger', fd.class === null ? fd.status : `class ${fd.class} of 5 · ${fd.name} · FWI ${fd.fwi}`],
     ['Open-Meteo wind here', wa.atUser ? `from ${wa.atUser.fromDeg}° · ${wa.atUser.speedKmh} km/h` : wa.status],
-    ['Open-Meteo humidity here', wa.atUser ? `${wa.atUser.humidity}%` : wa.status],
+    ['Open-Meteo humidity here', statusOf(d.humidity) || `${d.humidity.percent}%`],
+    ['Open-Meteo rain here', statusOf(d.rain) || `${d.rain.isRaining ? 'rained' : 'no rain'} in the last 2 hours · ${d.rain.mm} mm`],
     ['Open-Meteo wind at the fire', wa.atFire ? `from ${wa.atFire.fromDeg}° · ${wa.atFire.speedKmh} km/h` : nf.status ? '—' : wa.status],
   ]);
 
@@ -164,11 +161,10 @@ window.addEventListener('firedata', ({ detail: d }) => {
   const hu = d.humidity;
   total('humidityTotal', statusOf(hu) ? '—' : `${hu.percent}%`, statusOf(hu) || `relative humidity · ${hu.air} air`);
   pairs('humidity', statusOf(hu) ? [] : [
-    ['effect', hu.dryFactor > 1 ? 'dry: the fire burns faster and starts sooner' : hu.asWater < 1 ? 'damp: it works as water on the fire' : 'none'],
+    ['effect', hu.dryFactor > 1 ? 'dry: the fire burns faster' : hu.asWater < 1 ? 'damp: it works as water on the fire' : 'none'],
     ['× dry', `${hu.dryFactor} · on the burn rate`],
-    ['× humid', `${round2(1 + (50 - hu.percent) / 100)} · on what you add to the likelihood`],
     ['as water', `${hu.asWater} · on the burn rate${r.waterFrom === 'water' ? ' (real water is wetter right now)' : ''}`],
-    ['scale', 'burn rate: 20% or less dry ×1.5 · 50% no effect · 100% water ×0.2 · likelihood: 0% ×1.5 · 50% ×1 · 100% ×0.5'],
+    ['scale', 'burn rate: 20% or less dry ×1.5 · 50% no effect · 100% water ×0.2'],
   ]);
 
   const near = nf.distanceKm === undefined ? nf.status : `fire ${fmt(nf.distanceKm)} km away`;
@@ -179,17 +175,17 @@ window.addEventListener('firedata', ({ detail: d }) => {
     ['× near', `${r.near} · ${near}`],
     ['× wind', `${r.wind} · ${statusOf(w) || `${w.speedKmh} km/h`}`],
     ['× dry', `${r.dry} · ${statusOf(d.humidity) || `${d.humidity.percent}% humidity`}`],
-    ['× device', `${r.device} · ${i.fps} fps`],
+    ['× device', `${r.device} · ${i.fps} fps · ${i.tabs} tab${i.tabs === 1 ? '' : 's'} of this site open`],
     ['× water', `${r.water} · ${r.waterFrom === 'humidity' ? `damp air, ${d.humidity.percent}% humidity`
       : i.secondsSinceWater === null ? 'no water yet' : `water ${duration(i.secondsSinceWater * 1000)} ago`}`],
   ]);
   total('chanceTotal', `${Math.floor(c.percent)}%`, c.status !== 'loaded' ? c.status
     : q.minutesToNextFire === null ? 'nobody online'
     : `${c.solo ? 'only you (?solo)' : 'shared by everyone'} · +${q.percentPerMinute.toFixed(1)}% a minute · next fire in ${duration(q.minutesToNextFire * 60000)}`);
-  // one line per visitor online: base × time on the platform × humidity, then the sum
+  // one line per visitor online: base × time on the platform, then the sum
   pairs('chance', [
     ...c.visitors.map(v => [who(v.id),
-      `${c.base} × time ${v.time} (${duration(v.minutes * 60000)}) × humid ${v.humid} (${v.humidity === null ? 'humidity unknown' : `${v.humidity}%`}) = +${v.perMin.toFixed(1)}% a minute`]),
+      `${c.base} × time ${v.time} (${duration(v.minutes * 60000)}) = +${v.perMin.toFixed(1)}% a minute`]),
     ['= sum', `+${q.percentPerMinute.toFixed(1)}% a minute`],
   ]);
 });
