@@ -167,5 +167,5 @@
   document.fonts.ready.then(() => { build(); place(); });
 
   // for other scripts (the fire, saving the data…): where the trunk is
-  window.trunk = { el, x: CENTER_X, y: CENTER_Y, radius: RADIUS };
+  window.trunk = { el, x: CENTER_X, y: CENTER_Y, radius: RADIUS, tilt: TILT, depth: DEPTH };
 })();
