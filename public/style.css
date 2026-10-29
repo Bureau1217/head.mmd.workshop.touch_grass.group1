@@ -71,6 +71,18 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+/* rate of burning and likelihood of a fire, filled in every second by main.js */
+.news__fire {
+  margin: 0 0 14px;
+  font-size: var(--news-size);
+  line-height: 1.35;
+  font-variant-numeric: tabular-nums;
+}
+
+.news__fire:empty {
+  display: none;
+}
+
 .news__log {
   display: flex;
   flex-direction: column;
@@ -173,6 +185,47 @@ body {
   margin-left: 8px;
   font-weight: 400;
   color: var(--ink-soft);
+}
+
+/* left: wildfire API data, right: the fire speed calculation; one column on narrow screens */
+.data__split {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 40px;
+}
+
+@media (max-width: 720px) {
+  .data__split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.data__split .data__memory {
+  display: block;
+  overflow-x: auto;
+}
+
+/* one big number with its label on a single line */
+.data__split .data__amounts {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.data__formula {
+  margin-top: 10px;
+}
+
+.data__places {
+  margin: 10px 0 0;
+  color: var(--ink-soft);
+}
+
+.data__places a {
+  color: var(--ink);
+}
+
+.data__places a.on {
+  font-weight: 700;
+  text-decoration: none;
 }
 
 .data__status {

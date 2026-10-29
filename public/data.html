@@ -7,12 +7,47 @@
   <link rel="stylesheet" href="style.css">
   <script src="grain.js" defer></script>
   <script src="/socket.io/socket.io.js" defer></script>
+  <script src="fire.js" defer></script>
   <script src="data.js" defer></script>
 </head>
 <body>
   <main class="data">
     <h1 class="news__title">Forest data</h1>
     <p class="data__status" id="status">Connecting…</p>
+    <p class="data__places" id="places"></p>
+
+    <!-- left: what the APIs (GWIS / EFFIS, Open-Meteo) gave; right: the 8 values worked out from it (fire.js) -->
+    <div class="data__split">
+      <div>
+        <section>
+          <h2>APIs · this browser <span class="data__hint">GWIS / EFFIS, Open-Meteo</span></h2>
+          <dl class="data__pairs" id="api"></dl>
+        </section>
+        <section>
+          <h2>Wildfire API · each visitor's lookup <span class="data__hint">done by the server</span></h2>
+          <table class="data__memory">
+            <thead><tr><th>visitor</th><th>place</th><th>fires</th><th>hectares</th><th>largest</th><th>hotspots</th><th>danger</th></tr></thead>
+            <tbody id="lookups"></tbody>
+          </table>
+        </section>
+      </div>
+      <div>
+        <section>
+          <h2>The 8 values <span class="data__hint">updated every second · also in the console as JSON</span></h2>
+          <dl class="data__pairs data__eight" id="eight"></dl>
+        </section>
+        <section>
+          <h2>Rate of burning</h2>
+          <dl class="data__amounts" id="rateTotal"></dl>
+          <dl class="data__pairs data__formula" id="rate"></dl>
+        </section>
+        <section>
+          <h2>Likelihood of a fire</h2>
+          <dl class="data__amounts" id="chanceTotal"></dl>
+          <dl class="data__pairs data__formula" id="chance"></dl>
+        </section>
+      </div>
+    </div>
 
     <section>
       <h2>Amounts</h2>

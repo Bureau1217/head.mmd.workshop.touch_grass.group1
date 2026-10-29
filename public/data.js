@@ -82,6 +82,105 @@ function showMemory() {
 }
 //#endregion
 
+//#region TEST PLACES: the calculation as if this browser were somewhere else (fire.js reads ?at=lat,lon,City)
+const PLACES = [
+  ['Lisbon', 38.72, -9.14], ['Athens', 37.98, 23.73], ['Zurich', 47.37, 8.54],
+  ['Los Angeles', 34.05, -118.24], ['Edmonton', 53.55, -113.49], ['Cuiabá', -15.6, -56.1],
+  ['Kinshasa', -4.32, 15.31], ['Delhi', 28.61, 77.21], ['Yakutsk', 62.03, 129.73], ['Sydney', -33.87, 151.21],
+];
+{
+  const now = new URLSearchParams(location.search).get('at');
+  const link = (label, href, on) => { const a = el('a', label, on ? 'on' : ''); a.href = href; return a; };
+  $('places').append('Test a place: ', link('your position', 'data.html', !now),
+    ...PLACES.flatMap(([city, lat, lon]) => [' · ', link(city, `?at=${lat},${lon},${encodeURIComponent(city)}`, now === `${lat},${lon},${city}`)]));
+}
+//#endregion
+
+//#region WILDFIRE API AND FIRE SPEED: left the GWIS data, right the calculation from fire.js
+const pairs = (id, rows) => $(id).replaceChildren(...rows.flatMap(([k, v]) => [el('dt', k), el('dd', String(v))]));
+const total = (id, value, label) => {
+  const box = el('div');
+  box.append(el('dd', value), el('dt', label));
+  $(id).replaceChildren(box);
+};
+
+// each visitor's lookup, from the server's 'gwis' and 'no place' log entries (newest first)
+const lookups = [];
+function addLookup(entry) {
+  if (entry.kind !== 'gwis' && entry.kind !== 'no place') return false;
+  lookups.unshift(entry);
+  return true;
+}
+const dash = v => v === null || v === undefined ? '—' : typeof v === 'number' ? fmt(v) : v;
+function showLookups() {
+  const rows = lookups.map(l => {
+    const tr = el('tr', undefined, l.id === userID ? 'mine' : '');
+    const place = [l.city, l.kind === 'gwis' ? `${l.lat}, ${l.lon}` : 'location kept'].filter(Boolean).join(' · ');
+    const largest = l.largest ? `${fmt(l.largest.hectares)} ha, ${l.largest.date}` : '—';
+    tr.append(el('td', who(l.id)), el('td', place), el('td', dash(l.fires)), el('td', dash(l.hectares)),
+      el('td', largest), el('td', dash(l.hotspots)), el('td', dash(l.danger)));
+    return tr;
+  });
+  if (!rows.length) {
+    const tr = el('tr');
+    tr.append(el('td', 'no lookup in the log yet'));
+    rows.push(tr);
+  }
+  $('lookups').replaceChildren(...rows);
+}
+
+const statusOf = o => o.status || null; // a block without data carries only its status
+window.addEventListener('firedata', ({ detail: d }) => {
+  const u = d.userLocation, nf = d.nearestFire, dir = d.nearestFireDirection, w = d.wind, fd = d.fireDanger;
+  // left: what each API call gave, as it came
+  const dl = d.firesNearby, wa = d.windRaw;
+  pairs('api', [
+    ['position', u.status === 'shared' || u.status === 'test' ? `${u.lat}, ${u.lon}${u.status === 'test' ? ' · test place' : ''}` : u.status],
+    ['time zone city', u.city || '—'],
+    ['GWIS hotspots, 7 days', dl.count === null ? dl.status : `${fmt(dl.count)} within ${dl.withinKm} km`],
+    ['closest hotspot', statusOf(nf) || `${nf.lat}, ${nf.lon} · seen ${nf.seenAt || '—'}`],
+    ['GWIS Fire Weather Index', fd.fwi === null ? fd.status : fd.fwi],
+    ['Open-Meteo wind here', wa.atUser ? `from ${wa.atUser.fromDeg}° · ${wa.atUser.speedKmh} km/h` : wa.status],
+    ['Open-Meteo wind at the fire', wa.atFire ? `from ${wa.atFire.fromDeg}° · ${wa.atFire.speedKmh} km/h` : nf.status ? '—' : wa.status],
+  ]);
+
+  // right: the 8 values
+  const r = d.burnRate, c = d.likelihood, q = d.frequency, i = d.device;
+  pairs('eight', [
+    ['1 · burn rate', `${r.charactersPerSecond.toFixed(1)} characters/second${d.burning ? ' · burning' : ''}`],
+    ['2 · frequency', d.burning ? 'paused while burning' : `+${q.percentPerMinute.toFixed(1)}% a minute · next fire in ${duration(q.minutesToNextFire * 60000)}`],
+    ['3 · likelihood', `${Math.floor(c.percent)}%`],
+    ['4 · fires near you', dl.count === null ? dl.status : `${fmt(dl.count)} within ${dl.withinKm} km`],
+    ['5 · your location', u.lat !== null ? `${u.city ? u.city + ' · ' : ''}${u.lat}, ${u.lon}` : u.status],
+    ['6 · nearest fire', statusOf(nf) || `${fmt(nf.distanceKm)} km to the ${nf.side} (${nf.bearingDeg}°)`],
+    ['7 · its direction', statusOf(dir) || `spreading to the ${dir.heading} (${dir.headingDeg}°)${dir.towardUser ? ' · toward you' : ' · not toward you'}`],
+    ['8 · wind', statusOf(w) || `from the ${w.from}, blowing to the ${w.blowingTo} · ${w.speedKmh} km/h`],
+  ]);
+
+  const near = nf.distanceKm === undefined ? nf.status : `fire ${fmt(nf.distanceKm)} km away`;
+  total('rateTotal', r.charactersPerSecond.toFixed(1), d.burning ? 'characters/second · burning' : 'characters/second · would burn');
+  pairs('rate', [
+    ['base', r.base],
+    ['× time', `${r.time} · ${duration(i.secondsOnPage * 1000)} on the page`],
+    ['× near', `${r.near} · ${near}`],
+    ['× wind', `${r.wind} · ${statusOf(w) || `${w.speedKmh} km/h`}`],
+    ['× device', `${r.device} · ${i.fps} fps`],
+    ['× water', `${r.water} · ${i.secondsSinceWater === null ? 'no water yet' : `water ${duration(i.secondsSinceWater * 1000)} ago`}`],
+  ]);
+  total('chanceTotal', `${Math.floor(c.percent)}%`, d.burning ? 'paused while burning'
+    : `+${q.percentPerMinute.toFixed(1)}% a minute · next fire in ${duration(q.minutesToNextFire * 60000)}`);
+  pairs('chance', [
+    ['base', c.base],
+    ['× near', c.near],
+    ['× fires', `${c.fires} · ${dl.count === null ? dl.status : `${fmt(dl.count)} nearby`}`],
+    ['× toward', `${c.toward} · ${statusOf(dir) || (dir.towardUser ? 'the nearest fire is coming your way' : 'not coming your way')}`],
+    ['× danger', `${c.danger} · ${fd.class || 'unknown'}`],
+    ['× device', c.device],
+    ['× tab', `${c.tab}${i.tabHidden ? ' · tab in the background' : ''}`],
+  ]);
+});
+//#endregion
+
 //#region LIVE LOG: newest at the bottom, like a console
 const log = $('log');
 function addLog(entry, toConsole = true) {
@@ -101,7 +200,7 @@ function addLog(entry, toConsole = true) {
 
 //#region SOCKET.IO
 function show() {
-  showAmounts(); showYou(); showOnline(); showMemory();
+  showAmounts(); showYou(); showOnline(); showMemory(); showLookups();
 }
 
 const socket = io();
@@ -115,11 +214,19 @@ socket.on('snapshot', snapshot => {
     console.log('[forest] everything so far', snapshot);
     log.replaceChildren();
     snapshot.logs.forEach(entry => addLog(entry, false));
+    lookups.length = 0;
+    snapshot.logs.forEach(addLookup);
     log.scrollTop = log.scrollHeight;
   }
   show();
 });
-socket.on('log', entry => addLog(entry));
+socket.on('log', entry => {
+  addLog(entry);
+  if (addLookup(entry)) showLookups();
+  // water and fire from the forest change this page's calculation too
+  if (entry.kind === 'water') fire.water();
+  if (entry.kind === 'fire') fire.startFire();
+});
 
 setInterval(() => { if (data) showAmounts(); }, 1000); // keeps "server running for" ticking
 //#endregion

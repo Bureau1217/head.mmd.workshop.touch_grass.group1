@@ -45,6 +45,15 @@ function showEvent({ type, id, isNew, time, text, action }) {
   if (type === 'action') addNews(`${name} ${ACTION_NEWS[action]}`, age);
 }
 
+// ---- rate of burning and likelihood of a fire, every second from fire.js ----
+window.addEventListener('firedata', ({ detail: d }) => {
+  const r = d.burnRate, c = d.likelihood;
+  document.getElementById('fireRate').innerHTML =
+    `<b>${d.burning ? 'Burning' : 'Would burn'} ${r.charactersPerSecond.toFixed(1)} characters/second</b><br>` +
+    `${r.base} × time ${r.time} × near ${r.near} × wind ${r.wind} × device ${r.device} × water ${r.water}<br>` +
+    `<b>Fire likelihood ${Math.floor(c.percent)}%</b> ${d.burning ? '· paused while burning' : `· +${d.frequency.percentPerMinute.toFixed(1)}% a minute`}`;
+});
+
 //#region MEMORY: memory.txt on the server, one { id, text } line per visitor (see server.js)
 // Other scripts read it with forest.memory, and hear about changes through window events:
 //   'memoryline' (detail: { id, text }), 'memoryburn' (detail: { owner, word }), 'forestaction' (detail: event)
