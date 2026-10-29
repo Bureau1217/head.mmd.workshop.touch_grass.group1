@@ -156,6 +156,40 @@ body {
   fill: currentColor;
 }
 
+/* ---- pile: ASCII leaves falling around the trunk, drawn by pile.js, same type as the visitor's leaf ---- */
+.pile {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 4;  /* above the trunk, under the visitor's leaf */
+  pointer-events: none;
+  user-select: none;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+.pile__leaf {
+  position: absolute;
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 18px;
+  line-height: 1.15;
+  color: var(--ink);
+  white-space: pre;
+}
+
+/* the simulated likelihood of a fire, until burning.js shows the real one */
+.pile__level {
+  position: fixed;
+  right: 28px;
+  bottom: 24px;
+  z-index: 10;
+  margin: 0;
+  font-size: var(--news-size);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-soft);
+}
+
 /* fully visible for most of its life, then fades out; main.js removes the line when this ends */
 @keyframes news-fade {
   0%, 80% { opacity: 1; }
