@@ -20,8 +20,8 @@
   const FALL = 0.12;      // 0–1, how fast it follows a weaker one; lower feels smoother
   const DEBUG = false;    // true shows the loudness as a percentage after the text, to help tune the values above
 
-  // the leaf: which way blowing pushes it, and how hard each state pushes (0–1, 1 = as hard as an arrow key)
-  const BLOW_DIRECTION = { x: 0.5, y: -0.87 }; // up and a little to the right; x: -1 left … 1 right, y: -1 up … 1 down
+  // the leaf: how hard each state pushes it (0–1, 1 = as hard as an arrow key);
+  // the direction is chosen by leaf.js
   const SOFT_STRENGTH = 0.4;   // "blowing softly"
   const STEADY_STRENGTH = 1;   // "blowing steadily"
   //#endregion
@@ -30,7 +30,7 @@
   function blowLeaf(state) {
     if (!window.leaf) return;
     const k = STRENGTH[state];
-    window.leaf.blow(BLOW_DIRECTION.x * k, BLOW_DIRECTION.y * k, 'mic');
+    window.leaf.blow(0, -k, 'mic'); // only the strength counts
   }
 
   const text = document.getElementById('micState');
