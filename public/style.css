@@ -183,6 +183,11 @@ body {
   white-space: pre;
 }
 
+/* a fire line between two leaves, turned from its left end */
+.pile__line {
+  transform-origin: 0 0;
+}
+
 /* the simulated likelihood of a fire, until burning.js shows the real one */
 .pile__level {
   position: fixed;

@@ -47,7 +47,7 @@ const WORLD_ON = true;
     const viewW = screenW / camera.zoom, viewH = screenH / camera.zoom;
     camera.x = Math.min(Math.max(0, camera.x + dx / camera.zoom), Math.max(0, WORLD_W - viewW));
     camera.y = Math.min(Math.max(0, camera.y + dy / camera.zoom), Math.max(0, WORLD_H - viewH));
-    requestDraw();
+    draw(); // right away, so the grid moves in the same frame as everything else
   }
   //#endregion
 
@@ -56,6 +56,7 @@ const WORLD_ON = true;
     const step = { ArrowLeft: [-KEY_STEP, 0], ArrowRight: [KEY_STEP, 0], ArrowUp: [0, -KEY_STEP], ArrowDown: [0, KEY_STEP] }[e.key];
     if (!step) return;
     e.preventDefault();
+    if (window.leaf) return; // the leaf (leaf.js) moves the camera; moving it here too made everything jump for a frame
     moveCamera(...step);
   });
   //#endregion
