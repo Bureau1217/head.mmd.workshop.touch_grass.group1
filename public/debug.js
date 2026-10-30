@@ -1,10 +1,11 @@
 // Debug: a see-through box in the middle of the screen with the key values of fire.js (the burn rate,
 // the likelihood of a fire and the water rate) and of userdata.js (the location and canAddWater),
 // updated every second. The X key shows and hides it.
-// Needs userdata.js and fire.js (loaded before it). To remove it, delete this file, its <script> line in
-// index.html and the .debug section in style.css.
+// The F key starts a fire for everyone right away, to test the burn rate without waiting for the likelihood.
+// Needs userdata.js, main.js and fire.js (loaded before it). To remove it, delete this file, its <script> line
+// in index.html and the .debug section in style.css.
 (() => {
-  const KEY = 'x';
+  const KEY = 'x', FIRE_KEY = 'f';
 
   const box = document.createElement('pre');
   box.className = 'debug';
@@ -21,7 +22,8 @@
 
   function show() {
     box.textContent = [
-      `burn rate        ${burnRate.toFixed(2)} characters/second${fireBurning ? ' · burning' : ''}`,
+      `burn rate        ${burnRate.toFixed(2)} characters/second` +
+        (fireBurning ? ` · burning (baseline ${fireDetails.burn.baseline.toFixed(2)})` : ''),
       `fire likelihood  ${fireLikelihood.toFixed(2)}%`,
       `water rate       ${waterRate.toFixed(2)} drops/second`,
       `location         ${place()}`,
@@ -30,7 +32,10 @@
   }
 
   window.addEventListener('keydown', e => {
-    if (e.key.toLowerCase() !== KEY || e.repeat) return;
+    if (e.repeat) return;
+    const key = e.key.toLowerCase();
+    if (key === FIRE_KEY) socket.emit('testfire'); // the server starts it, unless a fire is already on (server.js)
+    if (key !== KEY) return;
     box.hidden = !box.hidden;
     if (!box.hidden) show();
   });

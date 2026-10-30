@@ -211,7 +211,11 @@
     item.node.textContent = item.rows.map((row, r) => [...row].map((c, x) => {
       if (c === ' ') return c;
       const lit = t - item.times[r][x]; // seconds since this character caught fire
-      if (lit < 0) { done = false; return item.hidden ? ' ' : c; }
+      if (lit < 0) {
+        // once the fire is stopped, a character that never caught (Infinity) never will
+        if (!fireStopped || item.times[r][x] !== Infinity) done = false;
+        return item.hidden ? ' ' : c;
+      }
       if (!item.lasting && lit > (item.burnS || BURN_S)) return item.ash(r, x);
       done = false;
       if (rand(r * 31 + x, tick) < 0.25) return ' '; // flicker
@@ -444,18 +448,18 @@
     fireStarted = true;
   }
 
-  // the fire stops ('fireout' from fire.js, when nothing feeds it any more): what is on fire turns to ash
-  // at once, what has not caught yet is saved; it does not start again
+  // the fire stops ('fireout' from fire.js, when nothing feeds it any more): what is on fire burns
+  // out as usual and turns to ash, nothing new catches (leaves, lines, bark and spiral alike), and what
+  // has not caught yet is saved; it does not start again
   let fireStopped = false;
   function stopFire() {
     if (fireStopped) return;
     fireStopped = true;
     const now = performance.now();
-    for (const leaf of fallen) leaf.lasting = false;
+    leavesOut(now); // the leaves that were to keep burning go out too, in the order they caught
     for (const item of burning) {
       const since = (now - item.start) / 1000;
-      item.times = item.times.map(row => row.map(t => t <= since ? -Infinity : Infinity));
-      item.done = false; // drawn one last time
+      item.times = item.times.map(row => row.map(t => t <= since ? t : Infinity)); // Infinity: never catches
     }
   }
 
@@ -475,8 +479,9 @@
   }
 
   function fire(now) {
+    // stopped: what is on fire burns out, nothing spreads any more
     if (fireStopped) {
-      for (const item of burning) if (!item.done) { item.tick = null; burn(item, now); item.done = true; }
+      for (const item of burning) if (!item.done) burn(item, now);
       return;
     }
     for (const leaf of fallen) {

@@ -40,18 +40,26 @@ const NEAR_BONUS = 1, NEAR_KM = 50;     // % a minute added, and how close the f
 // ---- rate of burning, in characters lost a second: one for the whole forest, worked out every second ----
 // Each visitor online who can't add water feeds it; a visitor who can add water (rain where they are, or
 // humidity over 50%, canAddWater in userdata.js) feeds nothing and pours water on it every WATER_EVERY_S instead.
-//   rate = Σ over the dry visitors of  ( B_BASE × time × tabs × device × wind × dry  + near )  × water
+//   rate = ( baseline + Σ over the dry visitors of  ( B_BASE × time × tabs × device × wind × dry  + near ) )  × water
+//   baseline  START_RATE → 0   every fire starts with it, whoever is online, and it fades to 0 over START_S seconds:
+//                       after that only the dry visitors keep the fire going
 //   time, tabs, device   the same as in the likelihood
 //   wind    1 → 2       the wind where the visitor is: 2 at WIND_MAX_KMH or more
 //   dry     1 → 2       their humidity: 1 at HUMID_MID %, 2 at DRY % or less
 //   near    +B_NEAR     when satellites saw a fire within NEAR_KM of them in the last 7 days
 //   water   0.2 → 1     each drop of water drops it to WATER_DROP, and it comes back to 1 over WATER_S seconds
 // The browser sends the wind, humidity and canAddWater as 'conditions' too (main.js).
-// A fire burns from 'firestart' (the likelihood reaching 100%) until the rate reaches 0 (only wet visitors
-// online, or nobody): then 'fireout' is sent to everyone.
+// A fire burns from 'firestart' (the likelihood reaching 100%, or the F key for testing) until the rate
+// reaches 0 (the baseline has faded and no dry visitor is online): then 'fireout' is sent to everyone.
 const B_BASE = 1, B_NEAR = 1, WIND_MAX_KMH = 50, HUMID_MID = 50, DRY = 20;
+const START_RATE = 2, START_S = 60; // characters a second every fire starts with, and the seconds it takes to fade
 const WATER_EVERY_S = 10, WATER_DROP = 0.2, WATER_S = 30;
-const fire = { burning: false, lastWater: -Infinity, nextDrop: new Map() }; // nextDrop: wet visitor id → time of their next drop
+// startedAt: when the fire started; nextDrop: wet visitor id → time of their next drop
+const fire = { burning: false, startedAt: 0, lastWater: -Infinity, nextDrop: new Map() };
+function startFire(now) {
+  fire.burning = true;
+  fire.startedAt = now;
+}
 
 const LIKELIHOOD = process.env.LIKELIHOOD_FILE || path.join(__dirname, 'likelihood.txt');
 let likelihood = 0;
@@ -128,10 +136,12 @@ function burnOf(visitors, now) {
   const sinceWater = (now - fire.lastWater) / 1000;
   const water = WATER_DROP + (1 - WATER_DROP) * Math.min(1, sinceWater / WATER_S);
   const sum = visitors.reduce((n, v) => n + v.burnPerS, 0);
-  const fireOut = fire.burning && sum * water === 0;
+  const baseline = fire.burning ? START_RATE * Math.max(0, 1 - (now - fire.startedAt) / 1000 / START_S) : 0;
+  const rate = (baseline + sum) * water;
+  const fireOut = fire.burning && rate === 0;
   if (fireOut) fire.burning = false;
   return {
-    rate: sum * water, sum, water, base: B_BASE, wet, waterRate: wet / WATER_EVERY_S, waterEveryS: WATER_EVERY_S,
+    rate, baseline, sum, water, base: B_BASE, wet, waterRate: wet / WATER_EVERY_S, waterEveryS: WATER_EVERY_S,
     burning: fire.burning, fireOut,
     secondsSinceWater: Number.isFinite(sinceWater) ? Math.round(sinceWater) : null,
   };
@@ -145,7 +155,7 @@ setInterval(() => {
   const shared = grow(likelihood, visitorFactors(now), minutes);
   likelihood = shared.percent;
   if (shared.fireStarted) {
-    fire.burning = true;
+    startFire(now);
     const event = { type: 'firestart', time: now };
     record(event);
     io.to('shared').emit('firestart', event);
@@ -181,6 +191,16 @@ io.on('connection', socket => {
     record(event);
     socket.broadcast.emit('joined', event);
     console.log(`${isNew ? 'joined' : 'came back'}: ${id} (${io.engine.clientsCount} online)`);
+  });
+
+  // for testing: the F key starts a fire for everyone right away, without waiting for the likelihood (debug.js)
+  socket.on('testfire', () => {
+    if (!socket.data.id || fire.burning) return;
+    startFire(Date.now());
+    const event = { type: 'firestart', id: socket.data.id, test: true, time: Date.now() };
+    record(event);
+    io.to('shared').emit('firestart', event);
+    console.log(`firestart: test fire from ${socket.data.id} (F key)`);
   });
 
   // this visitor's own values (userdata.js in the browser), kept for their part of the likelihood and the burn rate

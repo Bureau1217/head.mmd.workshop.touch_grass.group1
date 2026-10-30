@@ -1,6 +1,7 @@
 // Fire: the likelihood of a fire, the rate of burning and the water, as the server works them out every
 // second from every visitor online (server.js). Any script on the page can read the key values below, and
-// hear 'firestart' on window when the likelihood reaches 100% and 'fireout' when the burn rate reaches 0.
+// hear 'firestart' on window when a fire starts (the likelihood reaching 100%, the F key for testing, or a
+// fire already burning when the page opens) and 'fireout' when the burn rate reaches 0.
 // Needs main.js, which passes on what the server sends as 'forestlikelihood' on window.
 
 //#region THE KEY VALUES: from the server, kept up to date every second
@@ -16,8 +17,10 @@ window.addEventListener('forestlikelihood', ({ detail }) => {
   fireLikelihood = detail.percent;
   burnRate = detail.burn.rate;
   waterRate = detail.burn.waterRate;
+  // the server says whether a fire is on: when that changes, the fire started or stopped
+  const was = fireBurning;
   fireBurning = detail.burn.burning;
-  if (detail.fireStarted) window.dispatchEvent(new CustomEvent('firestart'));
+  if (!was && fireBurning) window.dispatchEvent(new CustomEvent('firestart'));
   // the burn rate reached 0 (only visitors who add water online, or nobody): the fire stopped
-  if (detail.burn.fireOut) window.dispatchEvent(new CustomEvent('fireout'));
+  if (was && !fireBurning) window.dispatchEvent(new CustomEvent('fireout'));
 });
