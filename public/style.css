@@ -202,7 +202,7 @@ body {
   transform-origin: 0 0;
 }
 
-/* the simulated likelihood of a fire, until burning.js shows the real one */
+/* the simulated likelihood of a fire, shown only without fire.js */
 .pile__level {
   position: fixed;
   right: 28px;
@@ -212,6 +212,31 @@ body {
   font-size: var(--news-size);
   font-variant-numeric: tabular-nums;
   color: var(--ink-soft);
+}
+
+/* ---- debug: the burn rate, likelihood and water rate in the middle of the screen, X key (debug.js) ---- */
+.debug {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  z-index: 20;  /* above everything */
+  margin: 0;
+  padding: 24px 32px;
+  max-width: calc(100vw - 32px);
+  transform: translate(-50%, -50%);
+  font-family: var(--font-mono);
+  font-size: var(--font-size);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.5;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.5);
+  white-space: pre;
+  overflow-x: auto;
+  pointer-events: none;
+}
+
+.debug[hidden] {
+  display: none;
 }
 
 /* fully visible for most of its life, then fades out; main.js removes the line when this ends */

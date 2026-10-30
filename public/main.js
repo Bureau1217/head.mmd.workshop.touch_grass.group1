@@ -1,19 +1,6 @@
 //#region USER IDENTIFICATION
-// ---- identity: the same browser keeps the same ID, so a visitor is recognised when they come back ----
-//generate the user id
-const ID = /^[a-z0-9]{6,32}$/;
-let userID = null;
-try { userID = localStorage.getItem('touch-grass-id'); } catch {}
-if (!userID || !ID.test(userID)) {
-  userID = Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 8);
-  try { localStorage.setItem('touch-grass-id', userID); } catch {}
-}
-
-
-// turns an ID into a readable name such as User482913 (the same ID always gives the same name)
-const nameOf = id => 'User' + (100000 + Math.abs([...id].reduce((h, c) => (h * 31 + c.charCodeAt(0)) | 0, 7)) % 900000);
-const user = nameOf(userID);
-document.getElementById('userName').textContent = user;
+// the visitor's ID and name come from userdata.js (loaded before this file)
+document.getElementById('userName').textContent = userName;
 //#endregion
 
 // ---- forest news: newest first, each line fades out (timing in style.css) ----
@@ -35,10 +22,13 @@ function addNews(message, age = 0) {
 }
 
 // turns an event from the server into a news line
-function showEvent({ type, id, isNew, time }) {
+function showEvent({ type, id, isNew, test, time }) {
   const age = Math.max(0, Date.now() - clockOffset - time);
-  if (type === 'joined') addNews(isNew ? `${nameOf(id)} joined the forest` : `${nameOf(id)} came back`, age);
-  if (type === 'left') addNews(`${nameOf(id)} left the forest`, age);
+  const name = id ? nameOf(id) : ''; // the fire's events have no visitor, except a test fire
+  if (type === 'joined') addNews(isNew ? `${name} joined the forest` : `${name} came back`, age);
+  if (type === 'left') addNews(`${name} left the forest`, age);
+  if (type === 'firestart') addNews(test ? `${name} started a test fire (F key)` : 'A fire started, the forest is burning', age);
+  if (type === 'fireout') addNews('The users have put the fire out', age);
 }
 
 //#region SOCKET.IO SERVER EVENTS
@@ -51,9 +41,25 @@ socket.on('welcome', ({ isNew, history, now, maxHistory: max }) => {
   maxHistory = max;
   log.replaceChildren(); // start from the server's history, so a reconnect doesn't show lines twice
   history.forEach(showEvent);
-  addNews(isNew ? `${user} joined the forest` : `${user} came back`);
+  addNews(isNew ? `${userName} joined the forest` : `${userName} came back`);
+  sendConditions();
 });
 socket.on('joined', showEvent);
 socket.on('left', showEvent);
+socket.on('firestart', showEvent);
+socket.on('fireout', showEvent);
+// the likelihood and the burn rate, every second: passed on to fire.js
+socket.on('likelihood', l => window.dispatchEvent(new CustomEvent('forestlikelihood', { detail: l })));
 socket.on('disconnect', () => addNews('Connection lost · reconnecting…'));
+
+// ---- conditions: this visitor's own values from userdata.js, for their part of the likelihood and the burn rate (server.js) ----
+// sent on every welcome and then every 10 s, so the server has the latest as the lookups come in
+function sendConditions() {
+  if (!socket.connected) return;
+  socket.emit('conditions', {
+    fireDanger: userFireDanger, humidity: userHumidity, raining: isRaining, fireKm: userFireKm, tabs: userTabs, fps: userFps,
+    windKmh: userWind ? userWind.speedKmh : null, canAddWater,
+  });
+}
+setInterval(sendConditions, 10000);
 //#endregion
