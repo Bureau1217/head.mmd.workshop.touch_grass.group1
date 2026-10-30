@@ -10,3 +10,6 @@ node_modules/
 
 # shared likelihood of a fire, kept between restarts
 likelihood.txt
+
+# visitors and their area, written by the server: personal data, not for GitHub
+memory.txt
