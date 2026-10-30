@@ -1,9 +1,10 @@
 // Trunk: a cut tree trunk seen from above at an angle, drawn in ASCII. Its rings are one line of
-// text wound in a spiral on the cut face, from the oldest year at the centre to the newest at the
-// bark. Each ring will later hold real data; for now it is placeholder text.
+// text wound in a spiral on the cut face, from the centre to the bark: the wildfire statistics of
+// wildfire_stats.js, one after the other, starting again from the first until the spiral is full.
 //
-// Needs world.js (loaded before it). To remove it, delete this file, its <script> line in
-// index.html and the .trunk section in style.css; nothing else depends on it.
+// Needs world.js (loaded before it), and wildfire_stats.js next to it (loaded here with import(), as it
+// is a module). To remove it, delete this file, its <script> line in index.html and the .trunk section
+// in style.css; nothing else depends on it.
 (() => {
   if (!window.world) return;
   const { WORLD_W, WORLD_H, camera, toScreen } = window.world;
@@ -19,7 +20,7 @@
   const TURNS = 11;    // turns of the text spiral
   const INNER = 0.06;  // where the spiral starts, as a share of the radius
   const OUTER = 0.86;  // where it ends, leaving room for the bark
-  const FIRST_YEAR = 1846;
+  const STATS_SEPARATOR = ' · '; // between two statistics on the spiral
   //#endregion
 
   //#region SHAPE: a slightly irregular outline, like a real trunk; the same for every visitor
@@ -28,15 +29,17 @@
   const rand = (a, b = 0) => { const v = Math.sin(a * 127.1 + b * 311.7) * 43758.5453; return v - Math.floor(v); };
   //#endregion
 
-  //#region PLACEHOLDER DATA: one entry per year, oldest first (the centre of the spiral)
-  const NOTES = ['wet spring', 'dry summer', 'late frost', 'fire to the north', 'mild winter', 'drought',
-    'heavy snow', 'storm', 'warm year', 'cold year', 'insects', 'flood', 'smoke in the valley', 'long autumn'];
-  function placeholder(minChars) {
+  //#region RING TEXT: the wildfire statistics (wildfire_stats.js), in the order they are written there,
+  // the first one at the centre of the spiral
+  let stats = []; // filled in before the trunk is built
+  const loadStats = import('./wildfire_stats.js')
+    .then(m => { stats = Object.values(m.default); })
+    .catch(() => {}); // without the file, the spiral stays empty
+  // the statistics one after the other, starting again from the first, until there are minChars
+  function ringText(minChars) {
+    if (!stats.length) return '';
     let text = '';
-    for (let year = FIRST_YEAR; text.length < minChars; year++) {
-      const width = (0.4 + rand(year, 1) * 3).toFixed(1);
-      text += `${year} · ring ${width} mm · ${NOTES[Math.floor(rand(year, 2) * NOTES.length)]} · `;
-    }
+    for (let i = 0; text.length < minChars; i++) text += stats[i % stats.length] + STATS_SEPARATOR;
     return text;
   }
   //#endregion
@@ -151,13 +154,13 @@
     const length = path.getTotalLength();
     const fontSize = parseFloat(getComputedStyle(svg).fontSize);
     // more text than the spiral can hold; whatever doesn't fit is simply not drawn
-    const words = placeholder(Math.ceil(length / (fontSize * 0.45)));
+    const words = ringText(Math.ceil(length / (fontSize * 0.45)));
 
     text.innerHTML = '<textPath href="#trunk-rings"></textPath>';
     text.firstChild.textContent = words;
 
     // for the fire (pile.js): the ring text, and how many of its characters fit on the spiral
-    const advance = text.getSubStringLength(0, 40) / 40;
+    const advance = words.length >= 40 ? text.getSubStringLength(0, 40) / 40 : fontSize;
     Object.assign(window.trunk, { rings: text.firstChild, ringChars: Math.min(words.length, Math.floor(length / advance)) });
   }
   //#endregion
@@ -170,10 +173,10 @@
   }
   //#endregion
 
-  // wait for the fonts, so the characters are measured in the right font
+  // wait for the fonts, so the characters are measured in the right font, for the statistics,
   // and for the page to load, so it is placed after the leaf has moved the camera in each frame
   // (placed before, it trailed one frame behind and shook while the camera moved)
-  window.addEventListener('load', () => document.fonts.ready.then(() => { build(); place(); }));
+  window.addEventListener('load', () => Promise.all([document.fonts.ready, loadStats]).then(() => { build(); place(); }));
 
   // for other scripts (the fire, saving the data…): where the trunk is
   window.trunk = { el, x: CENTER_X, y: CENTER_Y, radius: RADIUS, tilt: TILT, depth: DEPTH };
