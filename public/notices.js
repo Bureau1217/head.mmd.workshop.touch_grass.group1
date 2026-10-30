@@ -7,6 +7,8 @@
 //     the words it had not reached when it goes out
 //   - saving a word (Memory): when the server says so ('save': two humid visitors blowing together, or one
 //     blowing twice quickly), the word the fire is on never burns, sparkles (trunk.js) and is in the news
+//   - the end: when this page's spiral has burnt ('spiralburnt', pile.js) the server is told and stops the
+//     fire for everyone ('burnt'); once the saved words have flown away ('memoryflown'), the news thanks them
 // Needs userdata.js, main.js (socket, addNews) and fire.js loaded before it; leaf.js and pile.js too.
 //
 // To remove it, delete this file and its <script> line in index.html; the server then announces visitors
@@ -77,10 +79,22 @@
   // when the fire goes out, the words closest to where it stopped are saved
   window.addEventListener('fireout', () => {
     const r = window.pile && window.pile.rings && window.pile.rings();
-    if (!r) return;
+    if (!r || (window.pile.ended && window.pile.ended())) return; // the spiral burnt: nothing more is saved
     const all = words || findWords(r.text, r.n);
     const saved = all.filter(w => !w.kept && w.end < edgeOf(r) - 8).slice(0, SAVED_WORDS).reverse();
     for (const w of saved) addNews(`"${w.word}" is saved`);
+  });
+  //#endregion
+
+  //#region THE END: the spiral has burnt here, or somewhere else first (the server says 'burnt')
+  window.addEventListener('spiralburnt', () => { if (socket.connected) socket.emit('burnt'); });
+  socket.on('burnt', () => { if (window.pile && window.pile.end) window.pile.end(); });
+  // the share of the spiral's words that were saved
+  window.addEventListener('memoryflown', () => {
+    const r = window.pile && window.pile.rings && window.pile.rings();
+    const all = words || (r ? findWords(r.text, r.n) : []);
+    const percent = all.length ? Math.round(100 * all.filter(w => w.kept).length / all.length) : 0;
+    addNews(`Thank you, you saved ${percent}% of the forest memory`);
   });
   //#endregion
 
