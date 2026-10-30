@@ -27,8 +27,8 @@ function showEvent({ type, id, isNew, test, time }) {
   const name = id ? nameOf(id) : ''; // the fire's events have no visitor, except a test fire
   if (type === 'joined') addNews(isNew ? `${name} joined the forest` : `${name} came back`, age);
   if (type === 'left') addNews(`${name} left the forest`, age);
-  if (type === 'firestart') addNews(test ? `${name} started a test fire (F key)` : 'The likelihood reached 100%: a fire started', age);
-  if (type === 'fireout') addNews('Nothing feeds the fire any more: it went out', age);
+  if (type === 'firestart') addNews(test ? `${name} started a test fire (F key)` : 'A fire started, the forest is burning', age);
+  if (type === 'fireout') addNews('The users have put the fire out', age);
 }
 
 //#region SOCKET.IO SERVER EVENTS
