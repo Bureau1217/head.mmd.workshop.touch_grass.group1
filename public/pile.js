@@ -2,11 +2,11 @@
 // The more likely a fire, the more leaves on the ground: they are what will burn. At 100%, once the
 // last leaf has landed, one leaf and the foot of the trunk catch fire and fire lines carry it from
 // leaf to leaf, round the trunk, and to the trunk, whose bark burns much slower. Most leaves keep
-// burning until the ring spiral has burnt; a few burn out on their own. Too much humidity
-// (sky.js) stops the fire: what has not burnt is saved. With the bark, the ring spiral catches
-// and burns from its outer end to the centre.
-// With burning.js on the page, its likelihood is used; without it, it is simulated
-// (1% to 100% in one minute).
+// burning until the ring spiral has burnt; a few burn out on their own. When nothing feeds the fire
+// any more ('fireout' from fire.js) it stops: what has not burnt is saved. With the bark, the ring
+// spiral catches and burns from its outer end to the centre.
+// With fire.js on the page, the server's likelihood (fireLikelihood) and rate of burning (burnRate)
+// are used; without it, they are simulated (1% to 100% in one minute).
 //
 // Needs world.js and trunk.js (loaded before it). To remove it, delete this file, its <script>
 // line in index.html and the .pile section in style.css; nothing else depends on it.
@@ -17,7 +17,7 @@
 
   //#region SETTINGS (font size is in style.css)
   const MAX_LEAVES = 50;   // leaves on the ground at 100%
-  const SIMULATED_S = 60;  // without burning.js: seconds to go from 1% to 100%
+  const SIMULATED_S = 60;  // without fire.js: seconds to go from 1% to 100%
   const NEAR = 0.8;        // closest landing spot, in half-widths of the trunk from its centre
   const FAR = 1.9;         // farthest landing spot
   const FALL = 500;        // px, how high above its spot a leaf starts falling
@@ -25,7 +25,7 @@
   const SWAY = 70;         // px, how far it swings from side to side as it falls
   const SPIN = 35;         // degrees, how much a leaf on the ground can be turned
   const SEED = 7;          // change it for another arrangement of the leaves
-  const SHOW_LEVEL = true; // the percentage in the bottom-right corner (hidden when burning.js shows its own)
+  const SHOW_LEVEL = true; // the percentage in the bottom-right corner (only while simulated, without fire.js)
   //#endregion
 
   //#region SETTINGS: fire
@@ -44,7 +44,7 @@
   const ASH_LEAVES = 20;   // leaves that burn out as usual; the others keep burning until the spiral has burnt
   const LEAF_PACE = [0.5, 2]; // each leaf burns at its own pace, at random: from half to twice the usual time
   const RINGS_S = 120;     // seconds the ring spiral takes to burn, from its outer end to the centre;
-                           // with burning.js, its rate of burning (characters per second) is used instead
+                           // with fire.js, the server's rate of burning (burnRate, characters per second) is used instead
   //#endregion
 
   //#region LEAVES: the family, all drawn with the same characters as the visitor's leaf
@@ -143,10 +143,11 @@
   };
   //#endregion
 
-  //#region LIKELIHOOD: from burning.js when it is there, otherwise simulated
+  //#region LIKELIHOOD: from fire.js when it is there, otherwise simulated
   const start = performance.now();
+  const real = () => typeof fireLikelihood !== 'undefined'; // fire.js is on the page
   function level() {
-    if (window.burning) return window.burning.fireFactors().likelihood;
+    if (real()) return fireLikelihood;
     return Math.min(100, 1 + 99 * (performance.now() - start) / 1000 / SIMULATED_S);
   }
   //#endregion
@@ -413,8 +414,8 @@
     const f = ringsFire, dt = lastRings ? (now - lastRings) / 1000 : 0;
     lastRings = now;
     if (!f || f.front > f.n + 10) return;
-    // characters per second: from burning.js when it is there, otherwise the whole spiral in RINGS_S
-    f.front += (window.burning ? window.burning.factors().rate : f.n / (RINGS_S - BURN_S)) * dt;
+    // characters per second: from fire.js when it is there, otherwise the whole spiral in RINGS_S
+    f.front += (real() ? burnRate : f.n / (RINGS_S - BURN_S)) * dt;
     const since = (now - f.start) / 1000;
     for (let i = 0; i < f.n; i++) {
       // from the outer end inwards, with a slightly ragged edge
@@ -443,7 +444,7 @@
     fireStarted = true;
   }
 
-  // the fire stops (sky.js calls it when the humidity is too high): what is on fire turns to ash
+  // the fire stops ('fireout' from fire.js, when nothing feeds it any more): what is on fire turns to ash
   // at once, what has not caught yet is saved; it does not start again
   let fireStopped = false;
   function stopFire() {
@@ -460,7 +461,8 @@
 
   // the fire waits until every leaf is on the ground: the falling leaves are the countdown
   let fireWanted = false, fireStarted = false;
-  window.addEventListener('firestart', () => { fireWanted = true; }); // sent by burning.js when its likelihood reaches 100%
+  window.addEventListener('firestart', () => { fireWanted = true; }); // sent by fire.js when the likelihood reaches 100%
+  window.addEventListener('fireout', () => stopFire());                // sent by fire.js when the burn rate reaches 0
 
   // once the spiral has burnt, the leaves still burning go out: each character turns to ash
   // as long after now as it had caught after the leaf, so they go out in the order they caught
@@ -501,7 +503,7 @@
     el.style.transform = `translate(${o.x}px, ${o.y}px) scale(${camera.zoom})`;
 
     const percent = level();
-    if (!window.burning && percent >= 100) fireWanted = true; // without burning.js, the simulated likelihood
+    if (!real() && percent >= 100) fireWanted = true; // without fire.js, the simulated likelihood
     const wanted = fireWanted ? MAX_LEAVES : Math.min(MAX_LEAVES, Math.ceil(percent / 100 * MAX_LEAVES));
     while (dropped < wanted) drop(dropped++); // leaves stay, even when the likelihood drops
 
@@ -520,7 +522,7 @@
     if (fireWanted && !fireStarted && !fireStopped && dropped === MAX_LEAVES && fallen.every(l => l.landed)) startFire();
     fire(now);
 
-    label.hidden = !!window.burning;
+    label.hidden = real();
     label.textContent = `Likelihood of a fire: ${Math.floor(percent)}% (simulated)`;
     requestAnimationFrame(frame);
   }

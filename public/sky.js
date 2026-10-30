@@ -1,10 +1,11 @@
 // Sky: the background gradient, four colours from top to bottom, one per fire factor.
 // It is green; when the likelihood of a fire reaches 95%, each colour slides to the red at its own
 // height. The colours and their heights are in style.css (--sky-…).
-// Colour 1 (top) is humidity: the H key adds some; above 80% the fire stops (pile.js), what has not
-// burnt is saved and the gradient goes back to green.
+// Colour 1 (top) is humidity: the H key adds some.
 // Colour 4 (bottom) is drought: the S key adds some.
 // Both slowly go back when nothing adds to them. The keys simulate the data until the real one comes.
+// When the fire goes out ('fireout' from fire.js), what has not burnt is saved and the gradient goes
+// back to green.
 //
 // To remove it, delete this file and its <script> line in index.html; the green gradient stays.
 (() => {
@@ -15,7 +16,6 @@
   const HUMID_GROW = 1;     // % of the gradient that colour 1 gains per second after each press…
   const HUMID_S = 7;        // …for this many seconds (presses add up)
   const HUMID_DRY = 2;      // % it loses per second when nothing adds to it
-  const SAVED_AT = 80;      // humidity (%) above which the fire stops
   const DROUGHT_KEY = 's';
   const DROUGHT_GROW = 1;   // % of the gradient that colour 4 gains per second after each press…
   const DROUGHT_S = 15;     // …for this many seconds (presses add up)
@@ -72,17 +72,14 @@
   //#endregion
 
   //#region EVERY FRAME: humidity and drought move; from SHIFT_AT % likelihood (pile.js) the green
-  // turns red, until the humidity saves what is left and it goes back to green
+  // turns red, until the fire goes out and it goes back to green
   let shift = 0, saved = false, last = 0;
+  window.addEventListener('fireout', () => { saved = true; }); // sent by fire.js when the burn rate reaches 0
   function frame(now) {
     const dt = last ? (now - last) / 1000 : 0;
     last = now;
     humidity.update(dt);
     drought.update(dt);
-    if (!saved && humidity.value > SAVED_AT) {
-      saved = true;
-      if (window.pile) window.pile.stopFire();
-    }
     const turning = !saved && window.pile && window.pile.level() >= SHIFT_AT;
     shift = Math.min(1, Math.max(0, shift + (turning ? dt : -dt) / SHIFT_S));
     heat.fill(shift * shift * (3 - 2 * shift)); // starts and ends gently

@@ -7,3 +7,6 @@ references/
 node_modules/
 *.log
 .env
+
+# shared likelihood of a fire, kept between restarts
+likelihood.txt
