@@ -21,6 +21,8 @@
   const INNER = 0.06;  // where the spiral starts, as a share of the radius
   const OUTER = 0.86;  // where it ends, leaving room for the bark
   const STATS_SEPARATOR = ' · '; // between two statistics on the spiral
+  const SPARKLES = 26;   // ASCII sparkles (,) around a word when it is saved
+  const SPARKLE_S = 3;   // seconds the burst lasts (each sparkle's own fade is in style.css)
   //#endregion
 
   //#region SHAPE: a slightly irregular outline, like a real trunk; the same for every visitor
@@ -178,6 +180,26 @@
   // (placed before, it trailed one frame behind and shook while the camera moved)
   window.addEventListener('load', () => Promise.all([document.fonts.ready, loadStats]).then(() => { build(); place(); }));
 
-  // for other scripts (the fire, saving the data…): where the trunk is
-  window.trunk = { el, x: CENTER_X, y: CENTER_Y, radius: RADIUS, tilt: TILT, depth: DEPTH };
+  //#region SPARKLES: a burst of , around characters start…end of the ring text, when a word is saved
+  function sparkle(start, end) {
+    const text = svg.querySelector('text'), g = svg.querySelector('g');
+    if (!text || !g) return;
+    for (let k = 0; k < SPARKLES; k++) {
+      let p;
+      try { p = text.getStartPositionOfChar(start + Math.floor(Math.random() * (end - start + 1))); } catch { return; }
+      const a = Math.random() * 2 * Math.PI, d = 6 + Math.random() * 24; // around the letter, flattened like the face
+      const s = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      s.setAttribute('class', 'trunk__sparkle');
+      s.setAttribute('x', (p.x + Math.cos(a) * d).toFixed(1));
+      s.setAttribute('y', (p.y + Math.sin(a) * d * TILT).toFixed(1));
+      s.style.animationDelay = `${(Math.random() * SPARKLE_S * 0.6).toFixed(2)}s`;
+      s.textContent = ',';
+      g.append(s);
+      setTimeout(() => s.remove(), SPARKLE_S * 1000 + 200);
+    }
+  }
+  //#endregion
+
+  // for other scripts (the fire, saving the data…): where the trunk is, and sparkle(start, end)
+  window.trunk = { el, x: CENTER_X, y: CENTER_Y, radius: RADIUS, tilt: TILT, depth: DEPTH, sparkle };
 })();

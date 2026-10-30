@@ -14,7 +14,7 @@
   --sky-1: #cce0f4;  --sky-fire-1: #cce0f4;  /* before the fire, then once it burns */
   --sky-2: #baff85;  --sky-fire-2: #ff9873;
   --sky-3: #007346;  --sky-fire-3: #ff1d25;
-  --sky-4: #001e0a;  --sky-fire-4: #e00000;
+  --sky-4: #0e4920;  --sky-fire-4: #e00000;
   --sky-at-1: 0%;    /* where colour 1 starts fading: grows with humidity (H key) */
   --sky-at-2: 62%;   /* height of colours 2 and 3 (4 is at the bottom) */
   --sky-at-3: 88%;
@@ -55,6 +55,16 @@ body {
 /* the sky gradient fills the screen, under the paper grain that grain.js puts on body */
 html {
   background: linear-gradient(var(--sky-1) var(--sky-at-1), var(--sky-2) var(--sky-at-2), var(--sky-3) var(--sky-at-3), var(--sky-4) var(--sky-at-4));
+}
+
+/* the breathing glow over the middle of the sky (sky.js), under everything else and the paper grain */
+.sky__glow {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  opacity: 0;
+  pointer-events: none;
+  will-change: opacity;
 }
 
 body {
@@ -173,6 +183,18 @@ body {
   font-family: var(--font-mono);
   font-size: var(--font-size);
   fill: currentColor;
+}
+
+/* a sparkle (,) around a saved word of the spiral (trunk.js): appears, rises a little, fades */
+.trunk__sparkle {
+  animation: trunk-sparkle 1.2s ease-out both;
+  transform-box: fill-box;
+}
+
+@keyframes trunk-sparkle {
+  0%   { opacity: 0; transform: translateY(0); }
+  25%  { opacity: 1; }
+  100% { opacity: 0; transform: translateY(-8px); }
 }
 
 /* ---- pile: ASCII leaves falling around the trunk, drawn by pile.js, same type as the visitor's leaf ---- */

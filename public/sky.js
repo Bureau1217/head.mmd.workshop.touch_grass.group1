@@ -6,8 +6,9 @@
 //   colour 4 (bottom) is how close the nearest wildfire is (userFireKm): the closer, the more of the bottom.
 // The red gradient, once the likelihood of a fire is high, shows everyone online (fireDetails from fire.js):
 //   colour 1 is their average humidity, colour 4 the nearest wildfire to any of them.
-// Colours 2 and 3, in the middle, breathe: they move apart and back together, all the time, faster and
-// faster as the likelihood of a fire grows, and fastest while a fire burns.
+// Every colour fades softly into the next, so no line shows between them.
+// The middle breathes: a soft glow of colour 2 over colours 2 and 3 slowly lights up and fades out, all the
+// time (like a CSS opacity animation), faster as the likelihood of a fire grows, and fastest while a fire burns.
 // For testing, the H and S keys add some humidity and fire proximity on top of the data, for a while.
 // When the fire goes out ('fireout' from fire.js), what has not burnt is saved and the gradient goes
 // back to green.
@@ -21,12 +22,16 @@
   const FIRE_MAX = 50;      // % of the gradient colour 4 holds with a wildfire right where the visitor is…
   const FIRE_RANGE = 150;   // …and none with the nearest one this many km away or more (userdata.js looks 150 km around)
   const DATA_EASE_S = 3;    // seconds the gradient takes to settle when the data arrives or changes
-  const BREATH_S = 6;       // seconds for one breath of colours 2 and 3 (in and out), at 0% likelihood…
-  const BREATH_FAST_S = 1.5; // …and at 100%, or while a fire burns
-  const BREATH = 8;         // how far they move, in % of the space between colours 1 and 4
-  const SOFT_STEPS = 8;     // steps of the soft blend from colour 3 to colour 4 (more = smoother)
-  const SOFT_INTO = 0.5;    // share of colour 4's plain part the blend reaches into, so it is wide enough to
-                            // be seen (0: colour 4 plain over all its height, as the data says)
+  const MIDDLE_MIN = 35;    // % of the height always left to the middle (colours 2 and 3 and the blends):
+                            // when colours 1 and 4 would take more, both shrink together, so the gradient
+                            // never breaks into two plain blocks
+  const BREATH_S = 10;      // seconds for one breath of the middle (lights up and fades out), at 0% likelihood…
+  const BREATH_FAST_S = 4;  // …and at 100%, or while a fire burns
+  const GLOW = 0.7;         // how strong the glow is at the top of a breath (0–1)
+  const GLOW_SIZE = [90, 35]; // width and height of the glow, in % of the screen
+  const SOFT_STEPS = 8;     // steps of each soft blend between two colours (more = smoother)
+  const SOFT_INTO = 0.5;    // share of colour 4's plain part the blend from colour 3 reaches into, so it is wide
+                            // enough to be seen (0: colour 4 plain over all its height, as the data says)
   const HUMID_KEY = 'h';
   const HUMID_GROW = 1;     // % of the gradient that colour 1 gains per second after each press…
   const HUMID_S = 7;        // …for this many seconds (presses add up)
@@ -87,36 +92,47 @@
   const drought = pressed(DROUGHT_KEY, DROUGHT_GROW, DROUGHT_S, DROUGHT_BACK); // colour 4, from the bottom (fire proximity)
   //#endregion
 
+  //#region GLOW: a layer over the gradient and under everything else (style.css, .sky__glow)
+  const glowEl = document.createElement('div');
+  glowEl.className = 'sky__glow';
+  glowEl.setAttribute('aria-hidden', 'true');
+  document.body.prepend(glowEl);
+  //#endregion
+
   //#region DRAWING
   // how far each colour has gone towards its red, from 0 to 1;
   // the same for all four for now, later each one can follow its own fire factor
   const heat = [0, 0, 0, 0];
-  let shown = '';
+  let shown = '', shownGlow = '';
   function draw(breathAngle) {
     const colours = heat.map((h, i) => green[i].map((g, k) => Math.round(g + (red[i][k] - g) * h)));
     // colour 1 holds the top, colour 4 the bottom; the rest of the gradient is squeezed in between
-    const top = Math.min(100, data.top + humidity.value), bottom = Math.min(100, data.bottom + drought.value);
+    let top = data.top + humidity.value, bottom = data.bottom + drought.value;
+    const room = 100 - MIDDLE_MIN; // the most colours 1 and 4 can take together
+    if (top + bottom > room) { const k = room / (top + bottom); top *= k; bottom *= k; }
     const space = Math.max(0, 100 - top - bottom) / 100;
     const stops = [top, ...at.map(a => top + a * space), 100 - bottom];
-    // breathing: colour 2 rises while colour 3 sinks (breathing in), then they come back (out)
-    const breath = Math.sin(breathAngle) * BREATH * space;
-    stops[1] = Math.max(stops[0], stops[1] - breath);
-    stops[2] = Math.min(stops[3], Math.max(stops[1], stops[2] + breath));
+    stops[3] += (100 - stops[3]) * SOFT_INTO; // where colour 4 becomes plain
     const stop = (c, at) => `rgb(${c.map(Math.round)}) ${at.toFixed(1)}%`;
-    // from colour 3 to colour 4: a soft curve instead of a straight line, so colour 3 fades into colour 4
-    // with no visible edge where it starts, nor where colour 4 becomes plain
-    const soft = [];
-    for (let n = 0; n <= SOFT_STEPS; n++) {
-      const t = n / SOFT_STEPS, e = t * t * (3 - 2 * t); // eases in and out
-      const end = stops[3] + (100 - stops[3]) * SOFT_INTO; // where colour 4 becomes plain
-      soft.push(stop(colours[2].map((v, k) => v + (colours[3][k] - v) * e), stops[2] + (end - stops[2]) * t));
+    // each colour into the next along a soft curve instead of a straight line, so there is no visible
+    // edge where a colour starts or stops
+    const parts = [];
+    for (let i = 0; i < 3; i++) {
+      for (let n = i ? 1 : 0; n <= SOFT_STEPS; n++) {
+        const t = n / SOFT_STEPS, e = t * t * (3 - 2 * t); // eases in and out
+        parts.push(stop(colours[i].map((v, k) => v + (colours[i + 1][k] - v) * e), stops[i] + (stops[i + 1] - stops[i]) * t));
+      }
     }
-    const gradient = `linear-gradient(${[stop(colours[0], stops[0]), stop(colours[1], stops[1]), ...soft].join(', ')})`;
-    if (gradient === shown) return; // nothing changed (only when the middle has no room to breathe)
-    shown = gradient;
-    // only the page's own background changes: changing the --sky-… variables made every element of the
-    // page (trunk, spiral, leaves) work out its style again, every frame, which slowed the page down
-    root.style.backgroundImage = gradient;
+    const gradient = `linear-gradient(${parts.join(', ')})`;
+    // only the page's own background changes, and only when the data or the colours change: changing the
+    // --sky-… variables made every element of the page (trunk, spiral, leaves) work out its style again
+    if (gradient !== shown) { shown = gradient; root.style.backgroundImage = gradient; }
+
+    // the breathing glow: colour 2, centred between colours 2 and 3, fading out to nothing at its edges
+    const mid = (stops[1] + stops[2]) / 2;
+    const glow = `radial-gradient(ellipse ${GLOW_SIZE[0]}% ${GLOW_SIZE[1]}% at 50% ${mid.toFixed(1)}%, rgb(${colours[1]}), transparent)`;
+    if (glow !== shownGlow) { shownGlow = glow; glowEl.style.backgroundImage = glow; }
+    glowEl.style.opacity = ((1 - Math.cos(breathAngle)) / 2 * GLOW).toFixed(3); // 0 → GLOW → 0, gently
   }
   //#endregion
 
@@ -155,5 +171,6 @@
 
   // for other scripts: the shares of colours 1 and 4 from the data and from the keys (%), whether
   // the fire was stopped, and the colours' heat (sky.heat[0…3], top to bottom), drawn on the next frame
-  window.sky = { data, humidity, drought, heat, get saved() { return saved; } };
+  // addHumidity(): a humid visitor blowing on the fire (notices.js) adds humidity like the H key
+  window.sky = { data, humidity, drought, heat, get saved() { return saved; }, addHumidity: () => humidity.flows.push(HUMID_S) };
 })();

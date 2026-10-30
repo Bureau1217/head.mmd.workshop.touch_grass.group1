@@ -48,17 +48,30 @@ const NEAR_BONUS = 1, NEAR_KM = 50;     // % a minute added, and how close the f
 //   dry     1 → 2       their humidity: 1 at HUMID_MID %, 2 at DRY % or less
 //   near    +B_NEAR     when satellites saw a fire within NEAR_KM of them in the last 7 days
 //   water   0.2 → 1     each drop of water drops it to WATER_DROP, and it comes back to 1 over WATER_S seconds
+//   × blow  BLOW_FASTER for each dry visitor who just blew on it, BLOW_SLOWER for each humid one (BLOW_S seconds)
 // The browser sends the wind, humidity and canAddWater as 'conditions' too (main.js).
 // A fire burns from 'firestart' (the likelihood reaching 100%, or the F key for testing) until the rate
 // reaches 0 (the baseline has faded and no dry visitor is online): then 'fireout' is sent to everyone.
-const B_BASE = 1, B_NEAR = 1, WIND_MAX_KMH = 50, HUMID_MID = 50, DRY = 20;
-const START_RATE = 2, START_S = 60; // characters a second every fire starts with, and the seconds it takes to fade
+const B_BASE = 4, B_NEAR = 4, WIND_MAX_KMH = 50, HUMID_MID = 50, DRY = 20; // ×4 (was 1): the spiral burns in minutes
+const START_RATE = 8, START_S = 90; // characters a second every fire starts with, and the seconds it takes to fade
+                                    // (was 2 and 60: alone it now burns about a third of the spiral)
 const WATER_EVERY_S = 10, WATER_DROP = 0.2, WATER_S = 30;
-// startedAt: when the fire started; nextDrop: wet visitor id → time of their next drop
-const fire = { burning: false, startedAt: 0, lastWater: -Infinity, nextDrop: new Map() };
+// Blowing on the fire (the microphone or the arrow keys, sent by notices.js while a fire burns): a visitor
+// whose humidity is under BLOW_DRY % makes it spread faster: × BLOW_FASTER for BLOW_S seconds after each blow;
+// the others add humidity and slow it down: × BLOW_SLOWER for BLOW_S seconds. Several blowers multiply up.
+const BLOW_DRY = 40, BLOW_S = 5, BLOW_FASTER = 2, BLOW_SLOWER = 0.5;
+const BLOW_NEWS_S = 15; // a visitor's blowing is in the news at most this often
+// Saving a word of the spiral (Memory): two humid visitors blowing within SAVE_GAP_S seconds of each other,
+// or the same humid visitor blowing twice within it. Everyone is told ('save'); each page keeps the word
+// the fire is on (notices.js).
+const SAVE_GAP_S = 2;
+// startedAt: when the fire started; nextDrop: wet visitor id → time of their next drop;
+// lastWaterBy: who poured the last drop, the one who puts the fire out when it stops
+const fire = { burning: false, startedAt: 0, lastWater: -Infinity, nextDrop: new Map(), lastWaterBy: null, lastSaveAt: 0 };
 function startFire(now) {
   fire.burning = true;
   fire.startedAt = now;
+  fire.lastWaterBy = null;
 }
 
 const LIKELIHOOD = process.env.LIKELIHOOD_FILE || path.join(__dirname, 'likelihood.txt');
@@ -84,9 +97,11 @@ function visitorFactors(now) {
     const v = byId.get(s.data.id) || { since: s.data.since };
     v.since = Math.min(v.since, s.data.since);
     v.conditions = v.conditions || s.data.conditions; // sent by the browser (main.js)
+    // a blow acts for BLOW_S seconds (the 'blow' handler sets blowUntil)
+    if ((s.data.blowUntil || 0) > now) { v.blowing = true; v.blowsDry = s.data.blowDry; }
     byId.set(s.data.id, v);
   }
-  return [...byId].map(([id, { since, conditions }]) => {
+  return [...byId].map(([id, { since, conditions, blowing = false, blowsDry: dryBlow = false }]) => {
     const c = conditions || {};
     const minutes = (now - since) / 60000;
     const time = 1 + Math.min(minutes, 30) / 15;
@@ -101,10 +116,13 @@ function visitorFactors(now) {
     const wind = Number.isFinite(c.windKmh) ? 1 + Math.min(1, c.windKmh / WIND_MAX_KMH) : 1;
     const dry = Number.isFinite(c.humidity) ? 1 + Math.min(1, Math.max(0, (HUMID_MID - c.humidity) / (HUMID_MID - DRY))) : 1;
     const burnNear = isNear ? B_NEAR : 0;
+    // blowing: under BLOW_DRY % of humidity it speeds the fire up, otherwise it slows it down (see burnOf)
+    const blowsDry = blowing && dryBlow;
+    const blowsWet = blowing && !dryBlow;
     const burnPerS = wet ? 0 : B_BASE * time * tabs * device * wind * dry + burnNear;
     return {
       id, minutes, time, tabs, device, danger, near, perMin,
-      wet, wind, dry, burnNear, burnPerS, conditions: conditions || null,
+      wet, wind, dry, burnNear, burnPerS, blowing, blowsDry, blowsWet, conditions: conditions || null,
     };
   });
 }
@@ -129,22 +147,36 @@ function burnOf(visitors, now) {
     if (!v.wet) { fire.nextDrop.delete(v.id); continue; }
     const next = fire.nextDrop.get(v.id);
     if (next === undefined) fire.nextDrop.set(v.id, now + WATER_EVERY_S * 1000);
-    else if (now >= next) { fire.lastWater = now; fire.nextDrop.set(v.id, now + WATER_EVERY_S * 1000); }
+    else if (now >= next) { fire.lastWater = now; fire.lastWaterBy = v.id; fire.nextDrop.set(v.id, now + WATER_EVERY_S * 1000); }
   }
   for (const id of fire.nextDrop.keys()) if (!visitors.some(v => v.id === id)) fire.nextDrop.delete(id);
+  // blowing: each dry blower speeds the fire up, each humid one slows it down (and helps put it out)
+  let blow = 1;
+  for (const v of visitors) {
+    if (v.blowsDry) blow *= BLOW_FASTER;
+    if (v.blowsWet) { blow *= BLOW_SLOWER; fire.lastWaterBy = v.id; }
+  }
   const wet = visitors.filter(v => v.wet).length;
   const sinceWater = (now - fire.lastWater) / 1000;
   const water = WATER_DROP + (1 - WATER_DROP) * Math.min(1, sinceWater / WATER_S);
   const sum = visitors.reduce((n, v) => n + v.burnPerS, 0);
   const baseline = fire.burning ? START_RATE * Math.max(0, 1 - (now - fire.startedAt) / 1000 / START_S) : 0;
-  const rate = (baseline + sum) * water;
+  const rate = (baseline + sum) * water * blow;
   const fireOut = fire.burning && rate === 0;
   if (fireOut) fire.burning = false;
   return {
-    rate, baseline, sum, water, base: B_BASE, wet, waterRate: wet / WATER_EVERY_S, waterEveryS: WATER_EVERY_S,
+    rate, baseline, sum, water, blow, base: B_BASE, wet, waterRate: wet / WATER_EVERY_S, waterEveryS: WATER_EVERY_S,
     burning: fire.burning, fireOut,
     secondsSinceWater: Number.isFinite(sinceWater) ? Math.round(sinceWater) : null,
   };
+}
+
+// who starts a fire when the likelihood reaches 100%: the visitor with a wildfire closest to them, or else the
+// one adding the most to the likelihood
+function starterOf(visitors) {
+  const km = v => v.conditions && Number.isFinite(v.conditions.fireKm) ? v.conditions.fireKm : Infinity;
+  const best = visitors.reduce((a, v) => !a || km(v) < km(a) || (km(v) === km(a) && v.perMin > a.perMin) ? v : a, null);
+  return best ? best.id : null;
 }
 
 // every second: the likelihood and the burn rate, sent to everyone as 'likelihood' (the burn rate in its `burn`),
@@ -156,20 +188,47 @@ setInterval(() => {
   likelihood = shared.percent;
   if (shared.fireStarted) {
     startFire(now);
-    const event = { type: 'firestart', time: now };
+    const event = { type: 'firestart', id: starterOf(shared.visitors), time: now };
     record(event);
     io.to('shared').emit('firestart', event);
     console.log(`firestart (${shared.visitors.length} online)`);
   }
   const burn = burnOf(shared.visitors, now);
   if (burn.fireOut) {
-    const event = { type: 'fireout', time: now };
+    // put out by whoever poured the last drop, if they are still online; otherwise it just went out
+    const by = shared.visitors.some(v => v.id === fire.lastWaterBy) ? fire.lastWaterBy : null;
+    const event = { type: 'fireout', id: by, time: now };
     record(event);
     io.to('shared').emit('fireout', event);
     console.log(`fireout (${shared.visitors.length} online, ${burn.wet} adding water)`);
   }
   io.to('shared').emit('likelihood', { ...shared, burn });
 }, 1000);
+
+// a humid blow saves a word when another humid visitor blew within SAVE_GAP_S, or this one did (see SAVE_GAP_S)
+function saveIfTogether(socket, now) {
+  const recent = at => now - (at || 0) < SAVE_GAP_S * 1000;
+  const again = recent(socket.data.wetBlowAt);
+  const together = [...io.of('/').sockets.values()].some(o => o.data.id && o.data.id !== socket.data.id && recent(o.data.wetBlowAt));
+  socket.data.wetBlowAt = now;
+  if (!(again || together) || recent(fire.lastSaveAt)) return;
+  fire.lastSaveAt = now;
+  io.to('shared').emit('save', { type: 'save', id: socket.data.id, time: now });
+  console.log(`save: ${socket.data.id} (${together ? 'with another visitor' : 'blew twice'})`);
+}
+
+// tells everyone a visitor joined (once), with where from when the browser has said it
+const JOIN_WAIT_MS = 15000;
+function announceJoin(socket) {
+  if (!socket.data.joined || socket.data.announced) return;
+  socket.data.announced = true;
+  clearTimeout(socket.data.joinTimer);
+  const event = { ...socket.data.joined, place: socket.data.place || null };
+  record(event);
+  io.emit('joined', event); // to everyone, the visitor too, so they see where they join from
+  const where = event.place ? ` from ${[event.place.city, event.place.country].filter(Boolean).join(', ')}` : '';
+  console.log(`${event.isNew ? 'joined' : 'came back'}${where}: ${event.id} (${io.engine.clientsCount} online)`);
+}
 
 const app = express();
 app.use(express.static(path.join(__dirname, 'public')));
@@ -187,10 +246,35 @@ io.on('connection', socket => {
     seen.add(id);
     // `now` lets the browser line its clock up with the server's, so news fades at the same moment for everyone
     socket.emit('welcome', { isNew, history, now: Date.now(), maxHistory: MAX_HISTORY });
-    const event = { type: 'joined', id, isNew, time: Date.now() };
+    // a new visitor is announced with where they join from: the browser sends it as 'place' once it knows it
+    // (notices.js); without it after JOIN_WAIT_MS, they are announced without it
+    socket.data.joined = { type: 'joined', id, isNew, time: Date.now() };
+    if (isNew) socket.data.joinTimer = setTimeout(() => announceJoin(socket), JOIN_WAIT_MS);
+    else announceJoin(socket);
+  });
+
+  // where a new visitor joins from: { city, country }, from their location (userdata.js)
+  socket.on('place', p => {
+    if (!socket.data.id || !p || socket.data.place) return;
+    const text = v => typeof v === 'string' ? v.replace(/[\u0000-\u001f]/g, '').trim().slice(0, 60) : '';
+    socket.data.place = { city: text(p.city), country: text(p.country) };
+    announceJoin(socket);
+  });
+
+  // blowing on the fire, on and off (notices.js): each blow that starts during a fire speeds it up (a dry
+  // visitor) or slows it down for BLOW_S seconds (burnOf), and is in the news
+  socket.on('blow', on => {
+    if (!socket.data.id || on !== true || !fire.burning) return;
+    const now = Date.now();
+    const h = socket.data.conditions && socket.data.conditions.humidity;
+    socket.data.blowDry = Number.isFinite(h) && h < BLOW_DRY;
+    socket.data.blowUntil = now + BLOW_S * 1000;
+    if (!socket.data.blowDry) saveIfTogether(socket, now);
+    if (now - (socket.data.blowNewsAt || 0) < BLOW_NEWS_S * 1000) return;
+    socket.data.blowNewsAt = now;
+    const event = { type: 'blow', id: socket.data.id, effect: socket.data.blowDry ? 'fire' : 'humidity', time: now };
     record(event);
-    socket.broadcast.emit('joined', event);
-    console.log(`${isNew ? 'joined' : 'came back'}: ${id} (${io.engine.clientsCount} online)`);
+    io.to('shared').emit('blow', event);
   });
 
   // for testing: the F key starts a fire for everyone right away, without waiting for the likelihood (debug.js)
@@ -224,6 +308,7 @@ io.on('connection', socket => {
 
   socket.on('disconnect', () => {
     if (!socket.data.id) return;
+    clearTimeout(socket.data.joinTimer);
     const event = { type: 'left', id: socket.data.id, time: Date.now() };
     record(event);
     socket.broadcast.emit('left', event);

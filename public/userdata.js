@@ -289,3 +289,19 @@ const windFound = (() => {
   addEventListener('pageshow', e => { if (e.persisted) sayHere(); }); // back from the browser's page cache
 })();
 //#endregion
+
+//#region PLACE: the town and country where the visitor is, for the news ("User482913 joined from Athens, Greece")
+//   userPlace   { status, city, country }; status is 'waiting', 'loaded', 'unreachable' or 'skipped' (no location)
+//   placeFound  a promise, done once userPlace is filled in (or the lookup failed)
+// BigDataCloud's free reverse geocoding for browsers, from the location rounded to about 1 km; a test place
+// (?at=lat,lon,City) keeps its own city name
+const userPlace = { status: 'waiting', city: '', country: '' };
+const PLACE_API = 'https://api.bigdatacloud.net/data/reverse-geocode-client';
+const placeFound = locationFound.then(async found => {
+  if (!found) { userPlace.status = 'skipped'; return; }
+  try {
+    const d = await (await fetch(`${PLACE_API}?latitude=${userLocation.lat}&longitude=${userLocation.lon}&localityLanguage=en`)).json();
+    Object.assign(userPlace, { status: 'loaded', city: userLocation.city || d.city || d.locality || '', country: d.countryName || '' });
+  } catch { userPlace.status = 'unreachable'; }
+});
+//#endregion
