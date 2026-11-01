@@ -203,7 +203,8 @@ function starterOf(visitors) {
 let lastTick = Date.now();
 setInterval(() => {
   const now = Date.now(), minutes = (now - lastTick) / 60000; lastTick = now;
-  if (SIMULATION) { likelihood = Math.max(likelihood, simLevel(now)); simBlows(now); }
+  // the simulation sets the likelihood until its fire: 0 until the first blow, then up to 100% (simLevel)
+  if (SIMULATION) { if (!sim.fired) likelihood = simLevel(now); simBlows(now); }
   const shared = grow(likelihood, visitorFactors(now), minutes);
   likelihood = shared.percent;
   if (shared.fireStarted) {
@@ -255,14 +256,17 @@ function saveIfTogether(a, now) {
 }
 
 // ---- simulation (npm run demo, which sets SIMULATION=1): to present the project with a few visitors ----
-// When the first real visitor arrives, the simulated visitors below join one by one at random moments
-// (SIM_JOIN_S seconds after), and the likelihood rises so that the fire starts SIM_FIRE_S seconds after that
-// first visitor. During the fire they blow now and then: the humid ones slow it down, add humidity to it and
-// save words when two of them blow together; the dry ones make it worse. Their data is fixed, made up to be
-// plausible for their town; the real visitor keeps their own. likelihood.txt is left alone.
+// Nothing happens until a real visitor first blows on the leaf ('firstblow', notices.js): then the simulated
+// visitors below join one by one at random moments (SIM_JOIN_S seconds after), and the likelihood rises so
+// that the fire starts SIM_FIRE_S seconds after that first blow. During the fire they blow now and then: the
+// humid ones slow it down, add humidity to it and save words when two of them blow together; the dry ones
+// make it worse. Their data is fixed, made up to be plausible for their town; the real visitor keeps their own.
+// likelihood.txt is left alone.
+// For the exhibition it loops: once the spiral has burnt and the saved words have flown away, a page asks for a
+// new game ('newgame', notices.js); everything starts again from 0 and every page reloads.
 const SIMULATION = process.env.SIMULATION === '1';
-const SIM_JOIN_S = [8, 80];   // when each simulated visitor joins, at random in this range (seconds)
-const SIM_FIRE_S = [90, 110]; // when the fire starts, at random in this range: at most 2 minutes
+const SIM_JOIN_S = [3, 30];   // when each simulated visitor joins, at random in this range (seconds after the first blow)
+const SIM_FIRE_S = 40;        // the fire starts this many seconds after the first blow
 const SIM_BLOW_S = { humid: [5, 11], dry: [8, 18] }; // seconds between two blows of a simulated visitor
 const SIM_BOTS = [
   { id: 'simbergen', kind: 'humid', place: { city: 'Bergen', country: 'Norway' },
@@ -274,26 +278,38 @@ const SIM_BOTS = [
   { id: 'simlosangeles', kind: 'dry', place: { city: 'Los Angeles', country: 'United States' },
     conditions: { humidity: 14, raining: false, canAddWater: false, fireKm: 8, fireDanger: 5, windKmh: 38, tabs: 1, fps: 45 } },
 ];
-const sim = { started: 0, fireAt: 0, fired: false, bots: [] }; // bots: the simulated visitors who have joined
+// started: the first blow; bots: the simulated visitors who have joined; timers: their joins still to come;
+// fresh: a new game has just started (the next visitor to arrive clears the news, see 'hello')
+const sim = { started: 0, fireAt: 0, fired: false, bots: [], timers: [], fresh: false };
 const between = ([a, b]) => a + Math.random() * (b - a);
 
 function startSimulation(now) {
   if (!SIMULATION || sim.started) return;
   sim.started = now;
-  sim.fireAt = now + between(SIM_FIRE_S) * 1000;
+  sim.fireAt = now + SIM_FIRE_S * 1000;
   console.log(`simulation: ${SIM_BOTS.length} visitors will join; the fire starts in ${Math.round((sim.fireAt - now) / 1000)} s`);
   for (const bot of SIM_BOTS) {
-    setTimeout(() => {
+    sim.timers.push(setTimeout(() => {
       const at = Date.now();
       sim.bots.push({ ...bot, since: at, nextBlowAt: 0 });
       const event = { type: 'joined', id: bot.id, isNew: true, place: bot.place, time: at };
       record(event);
       io.emit('joined', event);
       console.log(`simulation: joined from ${bot.place.city}`);
-    }, between(SIM_JOIN_S) * 1000);
+    }, between(SIM_JOIN_S) * 1000));
   }
 }
-// the likelihood the simulation needs: from 0 at the first visitor to 100% at sim.fireAt, until the first fire
+// a new game: everything back to how it was before the first blow, and every page reloads (notices.js)
+function newGame() {
+  for (const t of sim.timers) clearTimeout(t);
+  Object.assign(sim, { started: 0, fireAt: 0, fired: false, bots: [], timers: [], fresh: true });
+  Object.assign(fire, { burning: false, wet: 0, lastWater: -Infinity, lastWaterBy: null, lastSaveAt: 0 });
+  fire.nextDrop.clear();
+  likelihood = 0;
+  io.emit('newgame');
+  console.log('simulation: new game, every page starts again');
+}
+// the likelihood the simulation needs: from 0 at the first blow to 100% at sim.fireAt
 function simLevel(now) {
   if (!sim.started || sim.fired) return 0;
   return Math.min(100, 100 * (now - sim.started) / (sim.fireAt - sim.started));
@@ -334,7 +350,8 @@ io.on('connection', socket => {
     socket.data.id = id;
     socket.data.since = Date.now(); // time on the platform, for the likelihood and the burn rate
     socket.join('shared');          // gets the likelihood and the burn rate every second
-    startSimulation(Date.now());    // only with SIMULATION, at the first visitor
+    // after a new game (SIMULATION), the old news goes and everyone joins anew
+    if (sim.fresh) { sim.fresh = false; history.length = 0; seen.clear(); }
     const isNew = !seen.has(id);
     seen.add(id);
     // `now` lets the browser line its clock up with the server's, so news fades at the same moment for everyone
@@ -360,6 +377,14 @@ io.on('connection', socket => {
     if (!socket.data.id || on !== true || !fire.burning) return;
     blowFrom(socket.data, Date.now());
   });
+
+  // the first blow on a page's leaf (notices.js): with SIMULATION, the simulated visitors join and the
+  // countdown to the fire starts
+  socket.on('firstblow', () => { if (socket.data.id) startSimulation(Date.now()); });
+
+  // a page's saved words have flown away after the end (notices.js): with SIMULATION, a new game starts
+  // (once: the other pages asking too are too late, sim.fired is already back to false)
+  socket.on('newgame', () => { if (socket.data.id && SIMULATION && sim.fired && !fire.burning) newGame(); });
 
   // a page's ring spiral has burnt completely (notices.js): the fire ends for everyone, and every page burns
   // what is left (pile.js, THE END)

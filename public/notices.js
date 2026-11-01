@@ -9,6 +9,8 @@
 //     blowing twice quickly), the word the fire is on never burns, sparkles (trunk.js) and is in the news
 //   - the end: when this page's spiral has burnt ('spiralburnt', pile.js) the server is told and stops the
 //     fire for everyone ('burnt'); once the saved words have flown away ('memoryflown'), the news thanks them
+//   - the exhibition loop (npm run demo): the page's first blow starts the countdown to the fire ('firstblow'),
+//     and NEW_GAME_S seconds after the thanks a new game starts: the server resets and every page reloads
 // Needs userdata.js, main.js (socket, addNews) and fire.js loaded before it; leaf.js and pile.js too.
 //
 // To remove it, delete this file and its <script> line in index.html; the server then announces visitors
@@ -22,6 +24,7 @@
   const SAVED_WORDS = 3;  // words named as saved when the fire goes out: the closest to where it stopped
   const BLOW_CHECK_MS = 200;
   const BLOW_DRY = 40;    // humidity (%) under which blowing feeds the fire instead (as in server.js)
+  const NEW_GAME_S = 8;   // seconds between the thanks at the end and a new game (npm run demo)
   //#endregion
 
   const burning = () => typeof fireBurning !== 'undefined' && fireBurning; // fire.js
@@ -36,9 +39,12 @@
   //#endregion
 
   //#region BLOWING: on and off, only while a fire burns
-  let sentBlow = false;
+  let sentBlow = false, sentFirst = false;
   setInterval(() => {
-    const on = burning() && !!(window.leaf && window.leaf.blowing);
+    const blowing = !!(window.leaf && window.leaf.blowing);
+    // the first blow on this page: with npm run demo, it starts the countdown to the fire (server.js)
+    if (blowing && !sentFirst && socket.connected) { sentFirst = true; socket.emit('firstblow'); }
+    const on = burning() && blowing;
     if (on === sentBlow || !socket.connected) return;
     sentBlow = on;
     socket.emit('blow', on);
@@ -95,7 +101,10 @@
     const all = words || (r ? findWords(r.text, r.n) : []);
     const percent = all.length ? Math.round(100 * all.filter(w => w.kept).length / all.length) : 0;
     addNews(`Thank you, you saved ${percent}% of the forest memory`);
+    setTimeout(() => { if (socket.connected) socket.emit('newgame'); }, NEW_GAME_S * 1000);
   });
+  // a new game (the server only starts one with npm run demo): this page starts again from the beginning
+  socket.on('newgame', () => location.reload());
   //#endregion
 
   //#region SAVING A WORD: the one the fire is on (or the next it will reach), kept intact on the spiral
