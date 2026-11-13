@@ -22,13 +22,15 @@ function addNews(message, age = 0) {
 }
 
 // turns an event from the server into a news line
-function showEvent({ type, id, isNew, test, time }) {
+function showEvent({ type, id, isNew, test, place, effect, time }) {
   const age = Math.max(0, Date.now() - clockOffset - time);
-  const name = id ? nameOf(id) : ''; // the fire's events have no visitor, except a test fire
-  if (type === 'joined') addNews(isNew ? `${name} joined the forest` : `${name} came back`, age);
+  const name = id ? nameOf(id) : ''; // some of the fire's events have no visitor
+  const from = place ? [place.city, place.country].filter(Boolean).join(', ') : '';
+  if (type === 'joined') addNews(!isNew ? `${name} came back` : from ? `${name} joined from ${from}` : `${name} joined the forest`, age);
   if (type === 'left') addNews(`${name} left the forest`, age);
-  if (type === 'firestart') addNews(test ? `${name} started a test fire (F key)` : 'A fire started, the forest is burning', age);
-  if (type === 'fireout') addNews('The users have put the fire out', age);
+  if (type === 'firestart') addNews(test ? `${name} started a test fire (F key)` : name ? `${name} started a fire` : 'A fire started, the forest is burning', age);
+  if (type === 'fireout') addNews(name ? `${name} put the fire out` : 'The fire went out', age);
+  if (type === 'blow') addNews(effect === 'fire' ? `Warning: ${name} is increasing the fire` : `${name} is adding humidity`, age);
 }
 
 //#region SOCKET.IO SERVER EVENTS
@@ -41,13 +43,14 @@ socket.on('welcome', ({ isNew, history, now, maxHistory: max }) => {
   maxHistory = max;
   log.replaceChildren(); // start from the server's history, so a reconnect doesn't show lines twice
   history.forEach(showEvent);
-  addNews(isNew ? `${userName} joined the forest` : `${userName} came back`);
+  // this visitor's own arrival comes from the server too, with where they join from ('joined')
   sendConditions();
 });
 socket.on('joined', showEvent);
 socket.on('left', showEvent);
 socket.on('firestart', showEvent);
 socket.on('fireout', showEvent);
+socket.on('blow', showEvent);
 // the likelihood and the burn rate, every second: passed on to fire.js
 socket.on('likelihood', l => window.dispatchEvent(new CustomEvent('forestlikelihood', { detail: l })));
 socket.on('disconnect', () => addNews('Connection lost · reconnecting…'));

@@ -327,6 +327,8 @@
   requestAnimationFrame(loop);
   //#endregion
 
-  // for other scripts (the microphone, the leaf pile…): blow on it, or read where it is
-  window.leaf = { blow, position: s, zone: zone.name };
+  // for other scripts (the microphone, the leaf pile…): blow on it, or read where it is and whether
+  // someone is blowing (the microphone or the arrow keys; notices.js tells the server)
+  const anyBlow = () => [sources.mic, sources.keys].some(b => b.x || b.y);
+  window.leaf = { blow, position: s, zone: zone.name, get blowing() { return anyBlow(); } };
 })();

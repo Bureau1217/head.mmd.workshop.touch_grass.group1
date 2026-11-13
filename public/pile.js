@@ -3,8 +3,9 @@
 // last leaf has landed, one leaf and the foot of the trunk catch fire and fire lines carry it from
 // leaf to leaf, round the trunk, and to the trunk, whose bark burns much slower. Most leaves keep
 // burning until the ring spiral has burnt; a few burn out on their own. When nothing feeds the fire
-// any more ('fireout' from fire.js) it stops: what has not burnt is saved. With the bark, the ring
-// spiral catches and burns from its outer end to the centre.
+// any more ('fireout' from fire.js) it stops: what has not burnt is saved. RINGS_DELAY_S seconds after
+// the fire starts, the ring spiral catches and burns from its outer end to the centre. When it has burnt,
+// everything left burns at once; then blowing clears the ashes and the saved words fly away (THE END).
 // With fire.js on the page, the server's likelihood (fireLikelihood) and rate of burning (burnRate)
 // are used; without it, they are simulated (1% to 100% in one minute).
 //
@@ -43,6 +44,13 @@
   const TRUNK_ASH = 0.45;  // share of the bark's characters left as a dot
   const ASH_LEAVES = 20;   // leaves that burn out as usual; the others keep burning until the spiral has burnt
   const LEAF_PACE = [0.5, 2]; // each leaf burns at its own pace, at random: from half to twice the usual time
+  const RINGS_DELAY_S = 5; // seconds after a fire starts before the ring spiral catches, whatever the leaves do
+  // the end: once the spiral has burnt, everything left catches within END_SPREAD_S and burns out in END_BURN_S
+  const END_SPREAD_S = 1.5, END_BURN_S = 1.5;
+  const ASH_PER_S = 350;   // ash characters blown away a second while someone blows, once all is burnt
+  const ASH_FLY_EVERY = 5; // one in this many is drawn flying away (the others just disappear)
+  const ASH_FLY_PX = 300;  // how far a flying ash goes
+  const WORDS_FLY_S = 5;   // seconds the saved words take to fly away, once the ashes are gone
   const RINGS_S = 120;     // seconds the ring spiral takes to burn, from its outer end to the centre;
                            // with fire.js, the server's rate of burning (burnRate, characters per second) is used instead
   //#endregion
@@ -213,7 +221,8 @@
       const lit = t - item.times[r][x]; // seconds since this character caught fire
       if (lit < 0) {
         // once the fire is stopped, a character that never caught (Infinity) never will
-        if (!fireStopped || item.times[r][x] !== Infinity) done = false;
+        // nor does a character of a saved word (item.kept: the ring spiral, see keep)
+        if ((!fireStopped && !(item.kept && item.kept.has(x))) || item.times[r][x] !== Infinity) done = false;
         return item.hidden ? ' ' : c;
       }
       if (!item.lasting && lit > (item.burnS || BURN_S)) return item.ash(r, x);
@@ -385,7 +394,6 @@
         times: rows.map(row => [...row].map(() => Infinity)),
       };
       burning.push(trunkFire);
-      igniteRings();
       window.dispatchEvent(new Event('trunkfire')); // for whoever needs to know the trunk is burning
     }
     // each character catches from the closest spot on fire
@@ -400,13 +408,14 @@
   // the ring spiral catches with the bark and burns from its outer end (the newest years) to the
   // centre (the oldest), a number of characters per second; it leaves . and , behind
   let ringsFire = null;
+  const keptChars = new Set(); // characters of the ring text in saved words: they never burn (keep)
   const ringAsh = (r, x) => { const v = rand(x, SEED + 11); return v < 0.35 ? '.' : v < 0.6 ? ',' : ' '; };
   function igniteRings() {
     const t = window.trunk;
     if (ringsFire || !t.rings) return;
     const text = t.rings.textContent, n = t.ringChars;
     ringsFire = {
-      node: t.rings, rows: [text], ash: ringAsh, start: performance.now(), everyTick: true, n, front: 0,
+      node: t.rings, rows: [text], ash: ringAsh, start: performance.now(), everyTick: true, n, front: 0, kept: keptChars,
       // what doesn't fit on the spiral is never seen: it goes at once
       times: [[...text].map((c, i) => i >= n ? 0 : Infinity)],
     };
@@ -423,7 +432,7 @@
     const since = (now - f.start) / 1000;
     for (let i = 0; i < f.n; i++) {
       // from the outer end inwards, with a slightly ragged edge
-      if (f.times[0][i] === Infinity && f.n - 1 - i + rand(i, SEED + 12) * 8 < f.front) f.times[0][i] = since;
+      if (f.times[0][i] === Infinity && !keptChars.has(i) && f.n - 1 - i + rand(i, SEED + 12) * 8 < f.front) f.times[0][i] = since;
     }
   }
   //#endregion
@@ -453,7 +462,7 @@
   // has not caught yet is saved; it does not start again
   let fireStopped = false;
   function stopFire() {
-    if (fireStopped) return;
+    if (fireStopped || ended) return; // at the end everything burns anyway (THE END)
     fireStopped = true;
     const now = performance.now();
     leavesOut(now); // the leaves that were to keep burning go out too, in the order they caught
@@ -464,7 +473,7 @@
   }
 
   // the fire waits until every leaf is on the ground: the falling leaves are the countdown
-  let fireWanted = false, fireStarted = false;
+  let fireWanted = false, fireStarted = false, fireWantedAt = 0;
   window.addEventListener('firestart', () => { fireWanted = true; }); // sent by fire.js when the likelihood reaches 100%
   window.addEventListener('fireout', () => stopFire());                // sent by fire.js when the burn rate reaches 0
 
@@ -479,8 +488,8 @@
   }
 
   function fire(now) {
-    // stopped: what is on fire burns out, nothing spreads any more
-    if (fireStopped) {
+    // stopped (or the end): what is on fire burns out, nothing spreads any more
+    if (fireStopped || ended) {
       for (const item of burning) if (!item.done) burn(item, now);
       return;
     }
@@ -499,6 +508,118 @@
     spreadRings(now);
     if (ringsFire && ringsFire.done) leavesOut(now);
     for (const item of burning) if (!item.done) burn(item, now);
+  }
+  //#endregion
+
+  //#region THE END: the spiral has burnt, everything left burns at once and fast, only ashes (. ,) and the
+  // saved words remain; blowing (the microphone or the arrow keys, leaf.js) clears the ashes, then the words
+  // fly away and 'memoryflown' is sent (notices.js gives the news)
+  let ended = false, ashes = null, wordsFlying = false, lastEnd = 0, ashBudget = 0;
+  function endFire(now) {
+    if (ended) return;
+    ended = true;
+    for (const leaf of fallen) if (leaf.landed && !leaf.start) ignite(leaf, { x: 0, r: 0 });
+    for (const item of burning) {
+      const since = (now - item.start) / 1000;
+      // what has not caught yet catches now, except the saved words of the spiral
+      item.times = item.times.map(row => row.map((t, x) =>
+        t > since && !(item === ringsFire && keptChars.has(x)) ? since + Math.random() * END_SPREAD_S : t));
+      item.burnS = END_BURN_S;
+      item.lasting = false;
+      item.done = false;
+      item.tick = null;
+    }
+  }
+
+  // where an ash character is in the world, to draw it flying away (fire lines: none, they just disappear)
+  function ashPosition({ item, r, x }) {
+    const t = window.trunk;
+    if (item === ringsFire) {
+      try { const p = t.rings.parentNode.getStartPositionOfChar(x); return { x: t.x + p.x, y: t.y + p.y }; } catch { return null; }
+    }
+    if (item === trunkFire) return { x: t.left + (x + 0.5) * t.cw, y: t.top + (r + 0.5) * t.ch };
+    if (fallen.includes(item)) {
+      const w = Math.max(...item.rows.map(row => row.length)) * cw, h = item.rows.length * lh;
+      return { x: item.x - w / 2 + (x + 0.5) * cw, y: item.y - h / 2 + (r + 0.5) * lh };
+    }
+    return null;
+  }
+  // a character drifting up and away, fading out (an ash, or a saved word)
+  function flyAway(text, p, px, ms, delay = 0, turn = 0) {
+    const node = document.createElement('pre');
+    node.className = 'pile__leaf';
+    node.textContent = text;
+    node.style.left = `${p.x}px`;
+    node.style.top = `${p.y}px`;
+    node.style.zIndex = 100000;
+    node.style.opacity = 0;
+    el.append(node);
+    const a = -Math.PI / 2 + (Math.random() - 0.5) * 1.4; // up, a little to either side
+    return node.animate([
+      { transform: `translate(-50%, -50%) rotate(${turn}deg)`, opacity: 1 },
+      { transform: `translate(calc(-50% + ${(Math.cos(a) * px).toFixed(0)}px), calc(-50% + ${(Math.sin(a) * px).toFixed(0)}px)) rotate(0deg)`, opacity: 0 },
+    ], { duration: ms, delay, easing: 'ease-out', fill: 'both' }).finished.then(() => node.remove());
+  }
+
+  function afterTheEnd(now) {
+    const dt = lastEnd ? (now - lastEnd) / 1000 : 0;
+    lastEnd = now;
+    // once everything has burnt out: the ashes, in a random order
+    if (!ashes) {
+      if (!burning.every(item => item.done)) return;
+      ashes = [];
+      for (const item of burning) {
+        item.chars = item.node.textContent.split('\n').map(row => [...row]);
+        item.chars.forEach((row, r) => row.forEach((c, x) => {
+          if (c !== '.' && c !== ',') return;
+          if (item === ringsFire && (keptChars.has(x) || x >= ringsFire.n)) return; // saved, or not on the spiral
+          ashes.push({ item, r, x });
+        }));
+      }
+      for (let i = ashes.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [ashes[i], ashes[j]] = [ashes[j], ashes[i]]; }
+    }
+    if (!ashes.length) { if (!wordsFlying) flyWords(); return; }
+    // blowing clears them
+    if (!(window.leaf && window.leaf.blowing)) return;
+    ashBudget += ASH_PER_S * dt;
+    const changed = new Set();
+    while (ashBudget >= 1 && ashes.length) {
+      ashBudget--;
+      const ash = ashes.pop();
+      if (ashes.length % ASH_FLY_EVERY === 0) {
+        const p = ashPosition(ash);
+        if (p) flyAway(ash.item.chars[ash.r][ash.x], p, ASH_FLY_PX * (0.5 + Math.random()), 1200 + Math.random() * 1600);
+      }
+      ash.item.chars[ash.r][ash.x] = ' ';
+      changed.add(ash.item);
+    }
+    for (const item of changed) item.node.textContent = item.chars.map(row => row.join('')).join('\n');
+  }
+
+  // the saved words leave the spiral one after the other and fly up
+  function flyWords() {
+    wordsFlying = true;
+    const done = () => window.dispatchEvent(new Event('memoryflown'));
+    if (!ringsFire || !keptChars.size) return done();
+    const text = ringsFire.rows[0], chars = ringsFire.chars, svgText = window.trunk.rings.parentNode;
+    const kept = [...keptChars].filter(i => i < ringsFire.n).sort((a, b) => a - b);
+    const words = []; // runs of saved characters
+    for (const i of kept) {
+      const last = words[words.length - 1];
+      if (last && i === last.end + 1) last.end = i; else words.push({ start: i, end: i });
+    }
+    const flights = words.map((w, k) => {
+      let p, turn = 0;
+      try {
+        p = svgText.getStartPositionOfChar(w.start);
+        turn = svgText.getRotationOfChar(w.start);
+      } catch { return Promise.resolve(); }
+      for (let i = w.start; i <= w.end; i++) chars[0][i] = ' ';
+      const t = window.trunk;
+      return flyAway(text.slice(w.start, w.end + 1), { x: t.x + p.x, y: t.y + p.y }, 900, WORDS_FLY_S * 1000, k * 250, turn);
+    });
+    window.trunk.rings.textContent = chars[0].join('');
+    Promise.all(flights).then(done);
   }
   //#endregion
 
@@ -524,8 +645,17 @@
     }
 
     // at 100%, the fire starts once the last leaf has landed
+    // the ring spiral catches RINGS_DELAY_S seconds after the fire started
+    if (fireWanted && !fireWantedAt) fireWantedAt = now;
+    if (fireWantedAt && !fireStopped && now - fireWantedAt >= RINGS_DELAY_S * 1000) igniteRings();
     if (fireWanted && !fireStarted && !fireStopped && dropped === MAX_LEAVES && fallen.every(l => l.landed)) startFire();
     fire(now);
+    // the spiral has burnt (all of it has caught): the end; notices.js tells the server, which stops the fire
+    if (!ended && ringsFire && ringsFire.front > ringsFire.n + 10) {
+      endFire(now);
+      window.dispatchEvent(new Event('spiralburnt'));
+    }
+    if (ended) afterTheEnd(now);
 
     label.hidden = real();
     label.textContent = `Likelihood of a fire: ${Math.floor(percent)}% (simulated)`;
@@ -539,5 +669,19 @@
   // for other scripts: the box of leaves, the current likelihood, starting the fire (pile.startFire()
   // in the browser console lights it right away, for testing) and stopping it, and for leaf.js:
   // the area to show around the trunk, a spot to land on and joining the other leaves
-  window.pile = { el, level, startFire, stopFire, scene, spot, join };
+  // rings(): the ring spiral's fire for notices.js, once it burns: its text, how many characters show
+  // (n), and how far the fire has gone from the outer end (front, in characters)
+  const rings = () => ringsFire && { text: ringsFire.rows[0], n: ringsFire.n, front: ringsFire.front };
+  // keep(start, end): characters start…end of the ring text are saved (a word, notices.js): they never burn,
+  // and those already on fire or in ashes come back
+  function keep(start, end) {
+    for (let i = start; i <= end; i++) {
+      keptChars.add(i);
+      if (ringsFire && i < ringsFire.n) ringsFire.times[0][i] = Infinity;
+    }
+    if (ringsFire) { ringsFire.tick = null; ringsFire.done = false; } // redrawn at once
+  }
+  // end(): the end now (the server stopped the fire because a spiral has burnt; notices.js); ended()
+  window.pile = { el, level, startFire, stopFire, scene, spot, join, rings, keep,
+    end: () => endFire(performance.now()), ended: () => ended };
 })();

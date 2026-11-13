@@ -1,6 +1,8 @@
 // Trunk: a cut tree trunk seen from above at an angle, drawn in ASCII. Its rings are one line of
-// text wound in a spiral on the cut face, from the centre to the bark: the wildfire statistics of
-// wildfire_stats.js, one after the other, starting again from the first until the spiral is full.
+// text wound in a spiral on the cut face, from the centre to the bark: the data of the visitor whose
+// nearest wildfire is the closest (the one who would start a fire, server.js), between the wildfire
+// statistics of wildfire_stats.js, starting again until the spiral is full. When that visitor changes, the
+// spiral rewrites itself from the centre; it stays as it is while a fire burns.
 //
 // Needs world.js (loaded before it), and wildfire_stats.js next to it (loaded here with import(), as it
 // is a module). To remove it, delete this file, its <script> line in index.html and the .trunk section
@@ -21,6 +23,10 @@
   const INNER = 0.06;  // where the spiral starts, as a share of the radius
   const OUTER = 0.86;  // where it ends, leaving room for the bark
   const STATS_SEPARATOR = ' · '; // between two statistics on the spiral
+  const SPARKLES = 26;   // ASCII sparkles (,) around a word when it is saved
+  const SPARKLE_S = 3;   // seconds the burst lasts (each sparkle's own fade is in style.css)
+  const ABOUT_EVERY = 3; // the visitor's data comes back after every this many statistics
+  const REWRITE_S = 3;   // seconds the spiral takes to rewrite itself, from the centre outwards
   //#endregion
 
   //#region SHAPE: a slightly irregular outline, like a real trunk; the same for every visitor
@@ -35,12 +41,32 @@
   const loadStats = import('./wildfire_stats.js')
     .then(m => { stats = Object.values(m.default); })
     .catch(() => {}); // without the file, the spiral stays empty
-  // the statistics one after the other, starting again from the first, until there are minChars
+  // the visitor's data at the centre, then the statistics one after the other with the data again every
+  // ABOUT_EVERY of them, starting again from the first, until there are minChars
+  let about = []; // sentences about the visitor (aboutVisitor)
   function ringText(minChars) {
-    if (!stats.length) return '';
-    let text = '';
-    for (let i = 0; text.length < minChars; i++) text += stats[i % stats.length] + STATS_SEPARATOR;
+    if (!stats.length && !about.length) return '';
+    const block = about.length ? about.join(STATS_SEPARATOR) + STATS_SEPARATOR : '';
+    let text = block;
+    for (let i = 0; text.length < minChars; i++) {
+      if (stats.length) text += stats[i % stats.length] + STATS_SEPARATOR;
+      if (block && (i % ABOUT_EVERY === ABOUT_EVERY - 1 || !stats.length)) text += block;
+    }
     return text;
+  }
+
+  // what the spiral says about a visitor, from what the server sends ('likelihood': visitors, subjectId)
+  const DANGER_NAMES = ['very low', 'low', 'moderate', 'high', 'very high', 'extreme'];
+  function aboutVisitor(v) {
+    const c = v.conditions || {}, p = v.place || {};
+    const where = [p.city, p.country].filter(Boolean).join(', ');
+    const name = typeof nameOf === 'function' ? nameOf(v.id) : 'A visitor'; // userdata.js
+    const lines = [where ? `${name} is in ${where}` : `${name} is in the forest`];
+    if (Number.isFinite(c.fireKm)) lines.push(`satellites saw a wildfire ${Math.round(c.fireKm)} km from ${p.city || 'them'} this week`);
+    if (Number.isInteger(c.fireDanger)) lines.push(`fire danger there today: ${DANGER_NAMES[c.fireDanger]}`);
+    if (Number.isFinite(c.humidity)) lines.push(`the air there holds ${Math.round(c.humidity)}% humidity`);
+    if (Number.isFinite(c.windKmh)) lines.push(`the wind blows at ${Math.round(c.windKmh)} km/h`);
+    return lines;
   }
   //#endregion
 
@@ -148,13 +174,15 @@
     }
     svg.innerHTML =
       `<g transform="translate(${ox} ${oy})">` +
-      `<path id="trunk-rings" d="M${points.join(' L')}" fill="none"/><text></text></g>`;
+      // xml:space keeps every space: burnt letters become spaces, and the others must stay in place
+      `<path id="trunk-rings" d="M${points.join(' L')}" fill="none"/><text xml:space="preserve"></text></g>`;
 
     const path = svg.querySelector('path'), text = svg.querySelector('text');
     const length = path.getTotalLength();
     const fontSize = parseFloat(getComputedStyle(svg).fontSize);
     // more text than the spiral can hold; whatever doesn't fit is simply not drawn
-    const words = ringText(Math.ceil(length / (fontSize * 0.45)));
+    ringMin = Math.ceil(length / (fontSize * 0.45));
+    const words = ringText(ringMin);
 
     text.innerHTML = '<textPath href="#trunk-rings"></textPath>';
     text.firstChild.textContent = words;
@@ -163,6 +191,32 @@
     const advance = words.length >= 40 ? text.getSubStringLength(0, 40) / 40 : fontSize;
     Object.assign(window.trunk, { rings: text.firstChild, ringChars: Math.min(words.length, Math.floor(length / advance)) });
   }
+  //#endregion
+
+  //#region REWRITING: when the visitor the spiral tells about changes, before a fire
+  let ringMin = 0, rewriting = 0, aboutKey = '';
+  function rewrite() {
+    const node = window.trunk.rings;
+    if (!node || (window.pile && window.pile.rings && window.pile.rings())) return; // the spiral is burning
+    const from = node.textContent, to = ringText(ringMin), start = performance.now(), token = ++rewriting;
+    // the new text replaces the old one from the centre (its start) to the bark
+    (function step(now) {
+      if (token !== rewriting) return; // a newer rewrite took over
+      const k = Math.floor(Math.min(1, (now - start) / 1000 / REWRITE_S) * to.length);
+      node.textContent = to.slice(0, k) + from.slice(k, to.length).padEnd(to.length - k);
+      if (k < to.length) requestAnimationFrame(step);
+    })(start);
+  }
+  window.addEventListener('forestlikelihood', ({ detail: d }) => {
+    if (!d || (d.burn && d.burn.burning)) return; // stays as it is while a fire burns
+    const v = (d.visitors || []).find(x => x.id === d.subjectId);
+    if (!v) return;
+    const lines = aboutVisitor(v), key = lines.join('|');
+    if (key === aboutKey) return;
+    aboutKey = key;
+    about = lines;
+    if (ringMin) rewrite(); // built already; otherwise it is written with it
+  });
   //#endregion
 
   //#region PLACING: follows the camera like everything else in the world
@@ -178,6 +232,26 @@
   // (placed before, it trailed one frame behind and shook while the camera moved)
   window.addEventListener('load', () => Promise.all([document.fonts.ready, loadStats]).then(() => { build(); place(); }));
 
-  // for other scripts (the fire, saving the data…): where the trunk is
-  window.trunk = { el, x: CENTER_X, y: CENTER_Y, radius: RADIUS, tilt: TILT, depth: DEPTH };
+  //#region SPARKLES: a burst of , around characters start…end of the ring text, when a word is saved
+  function sparkle(start, end) {
+    const text = svg.querySelector('text'), g = svg.querySelector('g');
+    if (!text || !g) return;
+    for (let k = 0; k < SPARKLES; k++) {
+      let p;
+      try { p = text.getStartPositionOfChar(start + Math.floor(Math.random() * (end - start + 1))); } catch { return; }
+      const a = Math.random() * 2 * Math.PI, d = 6 + Math.random() * 24; // around the letter, flattened like the face
+      const s = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      s.setAttribute('class', 'trunk__sparkle');
+      s.setAttribute('x', (p.x + Math.cos(a) * d).toFixed(1));
+      s.setAttribute('y', (p.y + Math.sin(a) * d * TILT).toFixed(1));
+      s.style.animationDelay = `${(Math.random() * SPARKLE_S * 0.6).toFixed(2)}s`;
+      s.textContent = ',';
+      g.append(s);
+      setTimeout(() => s.remove(), SPARKLE_S * 1000 + 200);
+    }
+  }
+  //#endregion
+
+  // for other scripts (the fire, saving the data…): where the trunk is, and sparkle(start, end)
+  window.trunk = { el, x: CENTER_X, y: CENTER_Y, radius: RADIUS, tilt: TILT, depth: DEPTH, sparkle };
 })();
